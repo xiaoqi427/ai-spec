@@ -1,0 +1,39 @@
+excel:
+  input_path: "./excel/测试用例模版.xlsx"        # Excel 文件路径（使用测试用例模版）
+  sheet_name: "测试用例"                          # 工作表名称（如实际不同可自行调整）
+  case_id_column: "序号"                        # 用例 ID 列名
+  description_column: "用例描述"               # 用例描述列名
+  system_url_column: "URL"            # 这里用来存放访问地址 URL
+  extra_context_column: ""                      # 暂不单独使用额外上下文字段
+  output_image_column: "测试截图|数据"          # 第一个“测试截图|数据”列作为输出图片路径列
+
+screenshot:
+  browser: "chrome"                      # 目前示例实现仅支持 chrome
+  driver_path: "./drivers/chromedriver"  # ChromeDriver 路径
+  window_width: 1920
+  window_height: 1080
+  timeout_seconds: 20
+
+login:
+  enabled: true                          # 是否启用登录
+  login_url: "http://10.60.137.24:8888/fssc/login.jsp"  # 登录页面URL
+  username: "fsscadmin"                      # 用户名
+  password: "wawddw!123"                   # 密码
+  username_selector: "#username01"  # 用户名输入框选择器
+  password_selector: "#password01"  # 密码输入框选择器
+  submit_selector: "#b1"     # 登录按钮选择器
+  wait_after_login: 5                    # 登录后等待秒数
+
+vision_model:
+  provider: "aliyun_open_source"         # 预留字段，用于区分不同模型
+  endpoint: "http://localhost:8000/predict"  # 视觉模型 HTTP 推理服务地址
+  api_key: ""                            # 如需要鉴权可填写
+
+mark:
+  input_color: "red"                     # 输入参数红框
+  output_color: "green"                  # 输出参数绿框
+  line_width: 3
+
+log:
+  level: "INFO"
+  log_file: "./logs/ai_test_system.log"
