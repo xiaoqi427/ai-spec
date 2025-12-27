@@ -5,7 +5,7 @@ trigger: manual
 
 ## 1. 目的与范围
 
-本文档定义 AI 编码助手 (Qoder) 在 **fssc-config-service** 项目中的工作规范。
+本文档定义 AI 编码助手 (Qoder) 在 **fssc-[模块名]-service** 项目中的工作规范。
 
 目标:
 
@@ -16,7 +16,7 @@ trigger: manual
 
 适用范围:
 
-- `fssc-config-service/` 下的所有模块
+- `fssc-[模块名]-service/` 下的所有模块
 - 代码建议、重构、测试和配置变更
 
 ---
@@ -26,11 +26,11 @@ trigger: manual
 - **类型**: Java 21, Spring Boot 3, Maven 多模块项目
 - **业务领域**: 财务共享服务中心 – 配置管理服务
 - **主要模块**:
-  - `fssc-config-do` – 数据实体层，只存放 entity DO 信息
-  - `fssc-config-api-param` – 存放 API 需要的 DTO 和 Converter
-  - `fssc-config-api` – 存放外部需要用到的 Feign API 接口
-  - `fssc-config-service` – 业务逻辑层，包含 business、service、mapper
-  - `fssc-config-web` – Web 层，包含 Controller 和配置
+  - `fssc-[模块名]-do` – 数据实体层，只存放 entity DO 信息
+  - `fssc-[模块名]-api-param` – 存放 API 需要的 DTO 和 Converter
+  - `fssc-[模块名]-api` – 存放外部需要用到的 Feign API 接口
+  - `fssc-[模块名]-service` – 业务逻辑层，包含 business、service、mapper
+  - `fssc-[模块名]-web` – Web 层，包含 Controller 和配置
 
 当不确定代码应该放在哪里时，**严格遵循下述模块职责和包结构规范**。
 
@@ -280,8 +280,7 @@ HTTP Request → Controller → Business → DO Service → Mapper → Database
 
 5. **异常类命名**: 使用 Exception 结尾
    ```java
-   public class BusinessException extends RuntimeException {}
-   public class DataNotFoundException extends Exception {}
+   public class I18nException extends IllegalStateException {}
    ```
 
 6. **测试类命名**: 以被测试类的名称开始，以 Test 结尾
@@ -757,7 +756,7 @@ HTTP Request → Controller → Business → DO Service → Mapper → Database
    - 明确指定 `rollbackFor = Exception.class`
    ```java
    @Transactional(rollbackFor = Exception.class)
-   public void createConfig(ConfigRequest request) {
+   public void create[模块名]([模块名]Request request) {
        // business logic
    }
    ```
@@ -816,7 +815,7 @@ HTTP Request → Controller → Business → DO Service → Mapper → Database
    ```java
    @Slf4j
    @Service
-   public class ConfigServiceImpl {
+   public class [模块名]ServiceImpl {
        public void process() {
            log.info("处理开始");
            log.error("处理失败", e);
@@ -1010,14 +1009,14 @@ HTTP Request → Controller → Business → DO Service → Mapper → Database
 1. **MapStruct Converter**:
    ```java
    @Mapper(componentModel = "spring")
-   public interface ConfigDtoConverter {
-       ConfigDtoConverter INSTANCE = Mappers.getMapper(ConfigDtoConverter.class);
+   public interface [模块名]DtoConverter {
+       [模块名]DtoConverter INSTANCE = Mappers.getMapper([模块名]DtoConverter.class);
        
-       ConfigDto toDto(ConfigDo configDo);
+       [模块名]Dto toDto([模块名]Do [模块名]Do);
        
-       ConfigDo toDo(ConfigDto configDto);
+       [模块名]Do toDo([模块名]Dto [模块名]Dto);
        
-       List<ConfigDto> toDtoList(List<ConfigDo> configDoList);
+       List<[模块名]Dto> toDtoList(List<[模块名]Do> [模块名]DoList);
    }
    ```
    
@@ -1070,14 +1069,14 @@ HTTP Request
 └────────────────────────┘
     ↓ 只调用
 ┌────────────────────────┐
-│   Business 层          │  ✅ 业务逻辑处理
+│   Service 层          │  ✅ 业务逻辑处理
 │  (@Service/@Component)  │  ✅ 事务管理
-│                        │  ✅ 调用多个 DO Service
-│                        │  ✅ 可调用平层 Business
+│                        │  ✅ 调用多个 Facade
+│                        │  ✅ 可调用平层 Servcie
 └────────────────────────┘
     ↓ 只调用
 ┌────────────────────────┐
-│   DO Service 层        │  ❌ 禁止业务逻辑
+│   Facade 层        │  ❌ 禁止业务逻辑
 │  (@Service)            │  ❌ 禁止 SQL
 │                        │  ❌ 禁止 if 逻辑
 │                        │  ✅ 只与 Mapper 交互
@@ -1096,37 +1095,38 @@ Database (DO 对象)
 ### 15.3 模块结构示例
 
 ```
-fssc-config-service/
-├── fssc-config-do/                    # DO 层
-│   └── src/main/java/com/yili/config/
+fssc-[模块名]-service/
+├── fssc-[模块名]-do/                    # DO 层
+│   └── src/main/java/com/yili/[模块名]/
 │       ├── common/DO/                  # 通用 DO
 │       ├── item/DO/                    # 项目 DO
 │       └── acpt/DO/                    # 承兑 DO
 │
-├── fssc-config-api-param/             # DTO 和 Converter 层
-│   └── src/main/java/com/yili/config/api/param/
+├── fssc-[模块名]-api-param/             # DTO 和 Converter 层
+│   └── src/main/java/com/yili/[模块名]/api/param/
 │       ├── common/
 │       │   ├── dto/                    # DTO
 │       │   └── converter/              # MapStruct Converter
 │       ├── item/
 │       └── acpt/
 │
-├── fssc-config-api/                   # Feign API 层
-│   └── src/main/java/com/yili/config/api/feign/
+├── fssc-[模块名]-api/                   # Feign API 层
+│   └── src/main/java/com/yili/[模块名]/api/feign/
 │       ├── item/
 │       └── acpt/
 │
-├── fssc-config-service/               # 业务逻辑层
-│   └── src/main/java/com/yili/config/
+├── fssc-[模块名]-service/               # 业务逻辑层
+│   └── src/main/java/com/yili/[模块名]/
 │       ├── common/
-│       │   ├── business/           # Business 层
-│       │   ├── service/            # DO Service 层
-│       │   └── mapper/             # Mapper 层
+│       │   ├── facade/           # DO Service 层
+│       │   ├── service/          # business 层
+│       │   ├── dto/              # dto 层
+│       │   └── mapper/           # Mapper 层
 │       ├── item/
 │       └── acpt/
 │
-└── fssc-config-web/                   # Web 层
-    └── src/main/java/com/yili/config/web/
+└── fssc-[模块名]-web/                   # Web 层
+    └── src/main/java/com/yili/[模块名]/web/
         └── controller/                # Controller 层
             ├── common/
             ├── item/
@@ -1163,7 +1163,7 @@ fssc-config-service/
 
 ## 总结
 
-本文档是 **fssc-config-service** 项目的 AI 助手工作规范。所有 Qoder AI 助手在生成代码、重构代码或提供建议时，必须严格遵守以下核心原则：
+本文档是 **fssc-[模块名]-service** 项目的 AI 助手工作规范。所有 Qoder AI 助手在生成代码、重构代码或提供建议时，必须严格遵守以下核心原则：
 
 1. **分层架构强制执行**: 绝对不允许跨层或反向调用
 2. **DO Service 纯洁性**: 绝对不允许包含 if/SQL/业务逻辑

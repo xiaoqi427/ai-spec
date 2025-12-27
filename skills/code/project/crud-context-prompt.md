@@ -12,9 +12,8 @@
 ```
 fssc-claim-service/claim-[服务名]/
 ├── claim-[服务名]-web/          # Web层 - Controller
-├── claim-[服务名]-service/      # 服务层 - Service接口和实现
-├── claim-[服务名]-do/           # 数据对象层 - DO实体类
-└── claim-[服务名]-api-param/    # 参数层 - DTO和Converter
+├── claim-[服务名]-service/      # 服务层 - Service接口、实现、DTO、Converter
+└── claim-[服务名]-do/           # 数据对象层 - DO实体类
 ```
 
 ### 模块依赖关系
@@ -23,7 +22,7 @@ claim-[服务名]-web
   ↓ 依赖
 claim-[服务名]-service 
   ↓ 依赖
-claim-[服务名]-do + claim-[服务名]-api-param
+claim-[服务名]-do
 ```
 
 ---
@@ -31,14 +30,14 @@ claim-[服务名]-do + claim-[服务名]-api-param
 ## 第一步：创建数据库实体类 (DO)
 
 ### 位置
-`claim-[服务名]-do/src/main/java/com/yili/claim/[服务名]/entity/[模块名]/[实体名]Do.java`
+`claim-[服务名]-do/src/main/java/com/yili/claim/[服务名]/[模块名]/entity/[实体名]Do.java`
 
 ### 提示词模板
 
 ````
 请在 claim-[服务名]-do 模块中创建实体类 [实体名]Do，要求如下：
 
-**包路径**：`com.yili.claim.[服务名].entity.[模块名]`
+**包路径**：`com.yili.claim.[服务名].[模块名].entity`
 
 **类信息**：
 - 类名：[实体名]Do
@@ -85,7 +84,7 @@ claim-[服务名]-do + claim-[服务名]-api-param
 ### 代码模板
 
 ```java
-package com.yili.claim.[服务名].entity.[模块名];
+package com.yili.claim.[服务名].[模块名].entity;
 
 import com.yili.common.db.base.DO.TenantBaseDO;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -170,7 +169,7 @@ public class [实体名]Do extends TenantBaseDO {
 package com.yili.claim.[服务名].[模块名].mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.yili.claim.[服务名].entity.[模块名].[实体名]Do;
+import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
@@ -191,16 +190,16 @@ public interface [实体名]DoMapper extends BaseMapper<[实体名]Do> {
 ## 第三步：创建 DTO 类
 
 ### 位置
-`claim-[服务名]-api-param/src/main/java/com/yili/claim/[服务名]/api/param/[模块名]/dto/`
+`claim-[服务名]-service/src/main/java/com/yili/claim/[服务名]/[模块名]/dto/`
 
 ### 提示词模板
 
 ```
-请在 claim-[服务名]-api-param 模块中创建以下 DTO 类：
+请在 claim-[服务名]-service 模块中创建以下 DTO 类：
 
 ### 3.1 主 DTO - [实体名]Dto
 
-**包路径**：`com.yili.claim.[服务名].api.param.[模块名].dto`
+**包路径**：`com.yili.claim.[服务名].[模块名].dto`
 
 **类信息**：
 - 类名：[实体名]Dto
@@ -247,9 +246,9 @@ public interface [实体名]DoMapper extends BaseMapper<[实体名]Do> {
 
 #### 主 DTO
 ```java
-package com.yili.claim.[服务名].api.param.[模块名].dto;
+package com.yili.claim.[服务名].[模块名].dto;
 
-import com.yili.claim.[服务名].entity.[模块名].[实体名]Do;
+import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
@@ -288,9 +287,9 @@ public class [实体名]Dto extends [实体名]Do {
 
 #### 删除 DTO
 ```java
-package com.yili.claim.[服务名].api.param.[模块名].dto;
+package com.yili.claim.[服务名].[模块名].dto;
 
-import com.yili.claim.[服务名].entity.[模块名].[实体名]Do;
+import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.Getter;
@@ -386,10 +385,10 @@ public class [实体名]ExportDto {
 ```java
 package com.yili.claim.[服务名].[模块名].converter;
 
-import com.yili.claim.[服务名].api.param.[模块名].dto.[实体名]Dto;
-import com.yili.claim.[服务名].entity.[模块名].[实体名]Do;
+import com.yili.claim.[服务名].[模块名].dto.[实体名]Dto;
+import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import com.yili.claim.[服务名].[模块名].dto.[实体名]ExportDto;
-import com.yili.common.db.mybatis.pojo.BaseConverter;
+import com.yili.common.db.mybatis.pojo.BaseMapperConverter;
 import org.mapstruct.Mapper;
 
 import java.util.List;
@@ -401,7 +400,7 @@ import java.util.List;
  * @since [日期]
  */
 @Mapper(componentModel = "spring")
-public interface [实体名]DtoConverter extends BaseConverter<[实体名]Dto, [实体名]Do> {
+public interface [实体名]DtoConverter extends BaseMapperConverter<[实体名]Do, [实体名]Dto> {
     
     /**
      * 将 DO 列表转换为导出 DTO 列表
@@ -465,10 +464,10 @@ public interface [实体名]DtoConverter extends BaseConverter<[实体名]Dto, [
 package com.yili.claim.[服务名].[模块名].facade;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.baomidou.mybatisplus.extension.service.IService;
-import com.yili.claim.[服务名].api.param.[模块名].dto.[实体名]Dto;
-import com.yili.claim.[服务名].entity.[模块名].[实体名]Do;
+import com.yili.claim.[服务名].[模块名].dto.[实体名]Dto;
+import com.yili.common.db.base.service.IBaseDoXService;
 import com.yili.common.db.mybatis.pojo.PageParam;
+import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import com.yili.config.sys.api.param.dto.UserObjectFullDto;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -480,7 +479,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * @author Generator
  * @since [日期]
  */
-public interface I[实体名]DoService extends IService<[实体名]Do> {
+public interface I[实体名]DoService extends IBaseDoXService<[实体名]Dto, [实体名]Do> {
 
     /**
      * 分页查询
@@ -507,8 +506,8 @@ public interface I[实体名]DoService extends IService<[实体名]Do> {
 package com.yili.claim.[服务名].[模块名].facade.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.yili.claim.[服务名].api.param.[模块名].dto.[实体名]Dto;
-import com.yili.claim.[服务名].entity.[模块名].[实体名]Do;
+import com.yili.claim.[服务名].[模块名].dto.[实体名]Dto;
+import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import com.yili.claim.[服务名].[模块名].converter.[实体名]DtoConverter;
 import com.yili.claim.[服务名].[模块名].dto.[实体名]ExportDto;
 import com.yili.claim.[服务名].[模块名].facade.I[实体名]DoService;
@@ -521,6 +520,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.Resource;
 import java.util.Collections;
 import java.util.List;
 
@@ -535,6 +535,9 @@ import java.util.List;
 @Service
 public class [实体名]DoServiceImpl extends BaseDoXService<[实体名]Dto, [实体名]Do, [实体名]DoMapper, [实体名]DtoConverter> implements I[实体名]DoService {
 
+    @Resource
+    private [实体名]DtoConverter [实体名小写]DtoConverter;
+
 
     @Override
     public Page<[实体名]Dto> page(UserObjectFullDto user, PageParam<[实体名]Dto, [实体名]Dto> param) {
@@ -548,7 +551,7 @@ public class [实体名]DoServiceImpl extends BaseDoXService<[实体名]Dto, [�
         //     param.getParams().setCompId(user.getCurCompId().toString());
         // }
 
-        return baseMapper.page(converter, param);
+        return mapper.page([实体名小写]DtoConverter, param);
     }
 
     @Override
@@ -563,7 +566,7 @@ public class [实体名]DoServiceImpl extends BaseDoXService<[实体名]Dto, [�
 
         Page<[实体名]Dto> page = page(user, pageParam);
 
-        List<[实体名]ExportDto> records = page == null ? Collections.emptyList() : converter.toExportDtoList(page.getRecords());
+        List<[实体名]ExportDto> records = page == null ? Collections.emptyList() : [实体名小写]DtoConverter.toExportDtoList(page.getRecords());
         EasyExcelWriteUtil.fileName("[业务名称]")
                 .sheet("[业务名称]", 0, records, [实体名]ExportDto.class)
                 .doWrite(response);
@@ -625,7 +628,7 @@ public class [实体名]DoServiceImpl extends BaseDoXService<[实体名]Dto, [�
 package com.yili.claim.[服务名].[模块名].service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.yili.claim.[服务名].api.param.[模块名].dto.[实体名]Dto;
+import com.yili.claim.[服务名].[模块名].dto.[实体名]Dto;
 import com.yili.common.db.mybatis.pojo.PageParam;
 import com.yili.config.sys.api.param.dto.UserObjectFullDto;
 import jakarta.servlet.http.HttpServletResponse;
@@ -691,8 +694,8 @@ public interface [实体名]Service {
 package com.yili.claim.[服务名].[模块名].service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.yili.claim.[服务名].api.param.[模块名].dto.[实体名]Dto;
-import com.yili.claim.[服务名].entity.[模块名].[实体名]Do;
+import com.yili.claim.[服务名].[模块名].dto.[实体名]Dto;
+import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import com.yili.claim.[服务名].[模块名].converter.[实体名]DtoConverter;
 import com.yili.claim.[服务名].[模块名].facade.I[实体名]DoService;
 import com.yili.claim.[服务名].[模块名].mapper.[实体名]DoMapper;
@@ -830,8 +833,8 @@ public class [实体名]ServiceImpl extends BaseDoXService<[实体名]Dto, [实�
 package com.yili.claim.[服务名].web.controller.[模块名];
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.yili.claim.[服务名].api.param.[模块名].dto.[实体名]DelDto;
-import com.yili.claim.[服务名].api.param.[模块名].dto.[实体名]Dto;
+import com.yili.claim.[服务名].[模块名].dto.[实体名]DelDto;
+import com.yili.claim.[服务名].[模块名].dto.[实体名]Dto;
 import com.yili.claim.[服务名].[模块名].service.[实体名]Service;
 import com.yili.common.db.mybatis.pojo.PageParam;
 import com.yili.config.sys.api.config.UserThreadLocal;
@@ -1048,12 +1051,11 @@ Controller: DTO
 ## 常见问题和注意事项
 
 ### 1. 包命名规范 (farmproduce 模块)
-- DO：`com.yili.claim.[服务名].entity.farmproduce`
+- DO：`com.yili.claim.[服务名].farmproduce.entity`
 - Mapper：`com.yili.claim.[服务名].farmproduce.mapper`
 - Facade：`com.yili.claim.[服务名].farmproduce.facade`
 - Service：`com.yili.claim.[服务名].farmproduce.service`
-- DTO (api-param)：`com.yili.claim.[服务名].api.param.farmproduce.dto`
-- DTO (service)：`com.yili.claim.[服务名].farmproduce.dto`
+- DTO：`com.yili.claim.[服务名].farmproduce.dto`
 - Converter：`com.yili.claim.[服务名].farmproduce.converter`
 - Controller：`com.yili.claim.[服务名].web.controller.farmproduce`
 
