@@ -168,7 +168,7 @@ public class [实体名]Do extends TenantBaseDO {
 ```java
 package com.yili.claim.[服务名].[模块名].mapper;
 
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.yili.common.db.mybatis.mapper.BaseMapperX;
 import com.yili.claim.[服务名].[模块名].entity.[实体名]Do;
 import org.apache.ibatis.annotations.Mapper;
 
@@ -181,7 +181,7 @@ import org.apache.ibatis.annotations.Mapper;
  * @since [日期]
  */
 @Mapper
-public interface [实体名]DoMapper extends BaseMapper<[实体名]Do> {
+public interface [实体名]DoMapper extends BaseMapperX<[实体名]Do> {
 }
 ```
 
