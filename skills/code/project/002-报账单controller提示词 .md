@@ -1,12 +1,12 @@
 报账单controller提示词
 
-仿照T033的controller帮忙写T051的
+仿照T047的controller帮忙写T045的
 
-controller放到 com.yili.claim.base.web.controller.claim
+controller放到 com.yili.claim.otc.web.controller.claim
 
-service放到 com.yili.claim.base.claim
+service放到 com.yili.claim.otc.claim
 
-如果T051遗漏的接口需要帮忙补充，根据之前struts的流程文件确定有多少接口,帮忙补上骨架代码，实现先不用做，后面我会统一做
+如果T045遗漏的接口需要帮忙补充，根据之前struts的流程文件确定有多少接口,帮忙补上骨架代码，实现先不用做，后面我会统一做
 
 注意事项：
 1，请帮忙增加实现类，个性化逻辑不要连带过来。

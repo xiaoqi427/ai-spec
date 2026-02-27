@@ -27,7 +27,7 @@ code_comment_language: 中文
 
 ```yaml
 # 优先使用: @Autowired / @Resource / 构造器注入
-preferred_injection: @Autowired
+preferred_injection: @Resource
 ```
 
 ### 2.2 Lombok 使用
@@ -317,7 +317,7 @@ custom_rules: |
 ```yaml
 response_language: 中文
 code_comment_language: 中文
-preferred_injection: @Autowired
+preferred_injection: @Resource
 use_lombok: true
 log_variable_name: log
 test_framework: JUnit5
@@ -325,3 +325,18 @@ orm_preference: MyBatis
 response_detail_level: 适中
 proactive_code_review: true
 ```
+## 创建文件注释增加
+@author sevenxiao
+
+## 先分析你要处理的步骤，其中要遵守不能修改代码，需要变更请重写，如果存在逻辑直接调用父类方法，我确认后才能修改代码
+* 遵守"不修改代码，需要变更请重写"的原则
+* 存在父类逻辑直接调用
+* 逻辑要完整
+* 抽离出的方法，方法注释上要写出原来代码对应行数
+* 不要遗漏代码
+* 代码先迁移过来，再用新框架看情况是否需要重构，方法尽量和之前保持一致
+* 删除文件，删除代码都要先确认
+
+## 代码规范
+* 不能对传入的变量重新赋值，对象set可以
+* mybatis plus就能实现的不要创建SQL
