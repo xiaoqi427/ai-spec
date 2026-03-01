@@ -1,8 +1,12 @@
+---
+name: claim-generator
+description: 报账单模块生成器
+---
 # Claim Module Generator (报账单模块生成器)
 
 ## 概述
 
-此skill用于快速生成YILI财务共享服务中心各类报账单模块的完整代码，包括Controller、Service、Mapper等所有层级的代码。
+此skill用于快速生成财务共享服务中心各类报账单模块的完整代码，包括Controller、Service、Mapper等所有层级的代码。
 
 支持的模块类型：
 - **TR模块** (claim-tr) - 资金类报账单
