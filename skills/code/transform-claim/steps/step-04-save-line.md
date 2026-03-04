@@ -1,83 +1,128 @@
-# 步骤4：保存报账单行 (Save Claim Line) + 更新报账单行 (Update Claim Line)
+# 步骤4：保存/更新报账单行 (Save/Update Claim Line)
 
-## 概述
+## 📋 概述
 
 **注意**: 与头层不同，行层的 Save 和 Update 在新框架中是**分离的两个基类**。
 
-| 操作 | 老代码 | 新代码 | 继承基类 |
-|------|--------|--------|---------|
-| **保存（新增行）** | `SaveT{XXX}ClaimLineService.java` | `T{XXX}SaveClaimLineServiceImpl.java` | `BaseSaveClaimLineService` |
-| **更新（修改行）** | `UpdateT{XXX}ClaimLineService.java` | `T{XXX}UpdateClaimLineServiceImpl.java` | `BaseUpdateClaimLineService` |
+| 操作 | 老代码 | 新代码 | 继承基类 | 模板文件 |
+|------|--------|--------|---------|----------|
+| **新增行** | `SaveT{XXX}ClaimLineService.java` | `T{XXX}SaveClaimLineServiceImpl` | `BaseSaveClaimLineService` | `line/save-template.java` |
+| **修改行** | `UpdateT{XXX}ClaimLineService.java` | `T{XXX}UpdateClaimLineServiceImpl` | `BaseUpdateClaimLineService` | `line/update-template.java` |
 
-### Save 行接口
+**可重写钩子**:
+- Save: `preExecute(claim, claimLineDto)`, `after(claim, claimLineDto)`
+- Update: `preExecute(claim, claimLineDto)`, `clearCrDrSegCode(claim, claimLineDto)`, `after(claim, claimLineDto)`
 
-| 项目 | 内容 |
-|------|------|
-| **接口** | `IT{XXX}SaveClaimLineService extends IBaseSaveClaimLineService` |
-| **核心方法** | `saveClaimLine(TRmbsClaimLineDto claimLineDto)` |
-| **可重写钩子** | `preExecute(claim, claimLineDto)`, `after(claim, claimLineDto)` |
-| **模板文件** | `templates/line/interface-save-template.java`, `templates/line/impl-save-template.java` |
+---
 
-### Update 行接口
+## 🔄 迁移策略（5步）
 
-| 项目 | 内容 |
-|------|------|
-| **接口** | `IT{XXX}UpdateClaimLineService extends IBaseUpdateClaimLineService` |
-| **核心方法** | `updateClaimLine(TRmbsClaimLineDto claimLineDto)` |
-| **可重写钩子** | `preExecute(claim, claimLineDto)`, `clearCrDrSegCode(claim, claimLineDto)`, `after(claim, claimLineDto)` |
-| **模板文件** | `templates/line/interface-update-template.java`, `templates/line/impl-update-template.java` |
+### 1. 定位老代码
 
-## 迁移策略
+- `SaveT{XXX}ClaimLineService.java` (新增行逻辑)
+- `UpdateT{XXX}ClaimLineService.java` (修改行逻辑)
+- 分别记录行数
 
-### 第一步：定位老代码
+### 2. 分析老代码逻辑模块
 
-1. 找到 `SaveT{XXX}ClaimLineService.java`
-2. 找到 `UpdateT{XXX}ClaimLineService.java`
-3. 分别记录行数
+**Save (新增行)** 逻辑分类:
 
-### 第二步：分析 Save（新增行）老代码
+| 模块 | 功能 | 迁移方式 |
+|------|------|----------|
+| A | 查报账单信息 | ✅ 基类已处理 |
+| B | 设币种/汇率 | ✅ 基类已处理 |
+| C | 八段信息处理 | ✅ 基类 super.preExecute() |
+| D | 发票校验/银行托收 | 🔧 迁移到 preExecute |
+| E-J | 智能报账、校验、科目段等 | ✅ 基类已处理 |
 
-**SaveT{XXX}ClaimLineService.execute()** 通常包含：
-```
-execute() {
-    // 模块A: 查报账单信息 → 基类已处理
-    // 模块B: 设币种/汇率 → 基类已处理 (非T057设CNY)
-    // 模块C: 八段信息处理 → 基类 preExecute 中 super.preExecute() 已处理
-    // 模块D: 发票校验/银行托收 → 需要迁移到 preExecute
-    // 模块E: 智能报账金额拆分 → 基类已处理
-    // 模块F: T049/T069校验 → 基类已处理
-    // 模块G: 科目段/子目段/承兑台账 → 基类已处理
-    // 模块H: save → 基类已处理
-    // 模块I: 手机费额度 → 基类已处理
-    // 模块J: processAmount → 基类 after 已处理
-}
-```
+**Update (修改行)** 逻辑分类:
 
-### 第三步：对照 BaseSaveClaimLineService 已实现能力 (274行)
+| 模块 | 功能 | 迁移方式 |
+|------|------|----------|
+| A | 查报账单和旧行数据 | ✅ 基类已处理 |
+| B | 特殊校验（状态、借贷等） | ✅ 基类已处理 |
+| C | 清除借贷科目段 | 🔧 可重写 clearCrDrSegCode |
+| D | T{XXX}特有修改逻辑 | 🔧 迁移到 preExecute |
 
+### 3. 基类能力速查
+
+**BaseSaveClaimLineService** (274行):
 ```
 saveClaimLine(claimLineDto)
-  ├── 查报账单: claimDoService.findByClaimId()
-  ├── 设币种/汇率 (非T057)
-  ├── preExecute(claim, claimLineDto)           // ★ 继承自 ClaimLineBaseService
-  │   └── super.preExecute() → 八段信息处理
-  ├── 智能报账金额拆分 (smartAccountAmount)
-  ├── T049/T069校验 (updateT049T069TransFlow)
-  ├── 项目段处理 (processApProjectSeg)
-  ├── 科目段校验 (validateSubjectField)
-  ├── T020/T035子目段 (processSubItemSeg)
-  ├── T014承兑台账 (processAcptBillBiz)
-  ├── claimLineDoService.save(claimLineDto)
-  ├── 手机费额度 (executeSaveMobilefeeQuota)
-  └── after(claim, claimLineDto)                // ★ 默认调 processAmount
+  ├── 查报账单 → 设币种/汇率
+  ├── preExecute(继承自ClaimLineBaseService → 八段信息)
+  ├── 智能报账金额拆分 → T049/T069校验
+  ├── 科目段/子目段/承兑台账处理
+  ├── save → 手机费额度
+  └── after → processAmount
 ```
 
-### 第四步：对照 BaseUpdateClaimLineService 已实现能力 (507行)
-
+**BaseUpdateClaimLineService** (507行):
 ```
 updateClaimLine(claimLineDto)
-  ├── 查报账单和旧行数据
-  ├── 设币种/汇率 (非T057)
+  ├── 查报账单和旧行 → 特殊校验
+  ├── clearCrDrSegCode → preExecute
+  ├── 智能报账 → 科目段处理
+  ├── save → 手机费额度
+  └── after → processAmount
+```
+
+### 4. 提取需迁移的逻辑
+
+**常见需迁移逻辑**:
+- Save: 发票校验、银行托收、T{XXX}特有字段
+- Update: 特殊修改逻辑、clearCrDrSegCode重写
+
+### 5. 编写新代码
+
+1. 分别创建Save和Update的接口和实现类
+2. 根据需要重写钩子方法
+3. 标注原代码行数
+
+---
+
+## ✅ 关键检查点
+
+### 分析阶段
+- [ ] Save和Update老代码都已定位
+- [ ] 逻辑已分类（基类已有 vs 需迁移）
+- [ ] 明确Save和Update的差异
+
+### 编码阶段
+- [ ] Save和Update分别创建了接口和实现类
+- [ ] 类上有 `@Slf4j` 和 `@Service`
+- [ ] 钩子方法重写正确
+
+### 验证阶段
+- [ ] 无编译错误
+- [ ] Save和Update场景都已覆盖
+- [ ] 无重复实现基类逻辑
+
+---
+
+## ⚠️ 常见坑点
+
+1. **混淆Save和Update** - 行层的Save和Update是分离的两个Service
+2. **重复八段处理** - preExecute中调用super.preExecute()已处理
+3. **重复金额拆分** - smartAccountAmount基类已处理
+4. **忘记clearCrDrSegCode** - Update时可能需要清除借贷科目段
+
+---
+
+## 📚 参考实现
+
+- **T047 Save**: `T047SaveClaimLineServiceImpl.java`
+- **T047 Update**: `T047UpdateClaimLineServiceImpl.java`
+- **基类Save**: `BaseSaveClaimLineService.java` (274行)
+- **基类Update**: `BaseUpdateClaimLineService.java` (507行)
+
+---
+
+## 📝 经验记录区
+
+> 每次迁移后补充实战经验
+
+<!-- 格式: [T{XXX}] {日期} {经验描述} -->
   ├── preExecute(claim, claimLineDto)           // ★ 子类重写点
   │   ├── clearCrDrSegCode(claim, claimLineDto) // 清借贷方科目段
   │   └── super.preExecute() → 八段信息处理

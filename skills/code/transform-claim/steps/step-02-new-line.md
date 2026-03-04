@@ -1,6 +1,6 @@
 # 步骤2：新建报账单行 (New Claim Line)
 
-## 概述
+## 📋 概述
 
 | 项目 | 内容 |
 |------|------|
@@ -12,113 +12,104 @@
 | **可重写钩子** | `preExecute(TRmbsClaimLineDto claimLineDto, TRmbsClaimBaseDto claim)` |
 | **模板文件** | `templates/line/interface-new-template.java`, `templates/line/impl-new-template.java` |
 
-## 迁移策略
+---
 
-### 第一步：定位老代码
+## 🔄 迁移策略（5步）
 
-1. 找到 `NewT{XXX}ClaimLineService.java`
-2. 记录文件总行数
+### 1. 定位老代码
 
-### 第二步：分析老代码 execute() 方法
+- 路径: `NewT{XXX}ClaimLineService.java`
+- 记录文件总行数
 
-老代码通常包含：
+### 2. 分析老代码 execute() 方法
 
-```
-execute() {
-    // 模块A: 查报账单信息 → 基类已处理
-    // 模块B: 创建ClaimLine对象、设claimId → 基类已处理
-    // 模块C: 设币种CNY、汇率1 → 基类已处理
-    // 模块D: 设公司ID → 基类已处理
-    // 模块E: T{XXX}特有字段初始化 → 需要迁移到 preExecute()
-    // 模块F: 设费用部门（根据部门属性、item2Id判断） → 基类已处理
-    // 模块G: 设BU段 → 基类已处理
-    // 模块H: 设部门属性（groupAttributeId） → 基类已处理
-    // 模块I: 设项目段（apProjectSeg） → 基类已处理
-    // 模块J: 设申请日期、发票类型、组织ID等 → 基类已处理
-}
-```
+老代码的逻辑模块分类：
 
-### 第三步：对照基类已实现能力
+| 模块 | 功能 | 迁移方式 |
+|------|------|----------|
+| A | 查报账单信息 | ✅ 基类已处理，跳过 |
+| B | 创建ClaimLine对象、设claimId | ✅ 基类已处理，跳过 |
+| C | 设币种CNY、汇率1 | ✅ 基类已处理，跳过 |
+| D | 设公司ID | ✅ 基类已处理，跳过 |
+| E | T{XXX}特有字段初始化 | 🔧 迁移到 preExecute() |
+| F-J | 费用部门、BU段、部门属性等 | ✅ 基类已处理，跳过 |
 
-`BaseNewClaimLineService.newClaimLine(Long claimId)` 已实现的完整流程（183行）：
+### 3. 基类能力速查
+
+`BaseNewClaimLineService.newClaimLine()` 流程：
 
 ```
 newClaimLine(claimId)
-  ├── 查报账单信息: claimDoService.findByClaimId(claimId)
+  ├── 查报账单信息
   ├── 创建 TRmbsClaimLineDto
-  ├── 设 claimId, currency(CNY), exchangeRate(1), compId
-  ├── preExecute(claimLineDto, claim)     // ★ 空钩子 → 子类重写点
-  ├── 设费用部门段（根据 sysGroup + item2Id 各种分支判断）
-  ├── 设BU段（buSegCode, buSeg）
-  ├── 设部门属性（groupAttributeId，含 T020/T035、多种itemId的特殊处理）
-  ├── 设项目段（apProjectSeg，含在建工程类、ConstructionProject配置）
-  ├── 设默认值（T002-T032等 groupAttributeId=0, costSeg=不分明细）
-  ├── 设 applyDate, invoiceType, orgId, costAssumeDepartment
-  ├── 设 T020的accountedOrgId/accountedCompId等
-  ├── 设 T019的crApProjectSegCode
-  └── 设 T030/T057的claimCreateDate
+  ├── 设 claimId, currency, exchangeRate, compId
+  ├── preExecute(claimLineDto, claim)     // ★ 子类重写点
+  ├── 设费用部门、BU段、部门属性、项目段等
+  ├── 设默认值、申请日期、发票类型等
+  └── return claimLineDto
 ```
 
-**注意**: 基类已处理了大量的 itemId 判断逻辑，覆盖面很广。
+**基类已覆盖**（无需迁移）：
+- 查报账单、创建对象、基础字段
+- 费用部门（根据sysGroup+item2Id判断，分支极其复杂）
+- BU段、部门属性、项目段、申请日期等
 
-### 第四步：提取需迁移的逻辑
+### 4. 提取需迁移的逻辑
 
-对比老代码和基类代码，只迁移基类**未覆盖**的 T{XXX} 特有逻辑到 `preExecute()`。
+**常见需迁移逻辑**：
+- T{XXX}特有字段初始化
+- 特殊默认值覆盖
+- 从其他Service查询并赋值
 
-常见需要迁移的逻辑：
-- 特有的字段初始化（如T047的退款相关字段）
-- 特殊的默认值覆盖
-- 从其他Service查询并赋值的逻辑
+**重要**: 很多单据类型的 NewClaimLine 完全被基类覆盖，实现类可为空。
 
-**重要**: 很多单据类型的 NewClaimLine 完全被基类覆盖，此时实现类可以是空的（如T047）。
+### 5. 编写新代码
 
-### 第五步：编写新代码
-
-1. 创建接口和实现类
+1. 基于模板创建接口和实现类
 2. 如有特有逻辑，在 `preExecute()` 中实现
-3. 如无特有逻辑，实现类保持空（仅继承基类）
+3. 如无特有逻辑，实现类保持空
 
-## 检查清单
+---
+
+## ✅ 关键检查点
 
 ### 分析阶段
-- [ ] 找到老代码文件并记录总行数
-- [ ] 逐行对比老代码与 BaseNewClaimLineService（183行）
-- [ ] 标记基类已覆盖的逻辑（通常是大部分）
-- [ ] 标记 T{XXX} 特有的逻辑
-- [ ] 确认 preExecute 的调用时机（在费用部门/BU段/部门属性之前）
+- [ ] 老代码文件已定位，记录行数
+- [ ] 逻辑已分类（基类已有 vs 需迁移）
+- [ ] 确认preExecute调用时机（在费用部门等之前）
 
 ### 编码阶段
-- [ ] 创建接口 `IT{XXX}NewClaimLineService extends IBaseNewClaimLineService`
-- [ ] 创建实现类 `T{XXX}NewClaimLineServiceImpl extends BaseNewClaimLineService`
-- [ ] 类上添加 `@Service` 注解
-- [ ] 如有特有逻辑：重写 `preExecute(TRmbsClaimLineDto claimLineDto, TRmbsClaimBaseDto claim)`
-- [ ] preExecute 必须返回 `claimLineDto`
-- [ ] 注释标注原代码行数
+- [ ] 接口和实现类已创建
+- [ ] 类上有 `@Slf4j` 和 `@Service`
+- [ ] preExecute 返回 `claimLineDto`
 
 ### 验证阶段
 - [ ] 无编译错误
-- [ ] 没有重复基类的 itemId 判断逻辑
-- [ ] 基类 preExecute 调用时机正确理解（在基类其他逻辑之前）
-- [ ] import语句完整
+- [ ] 无重复实现基类的itemId判断逻辑
 
-## 常见坑点
+---
 
-1. **大量重复**: 基类 `BaseNewClaimLineService` 已包含非常多 itemId 的特殊处理，老代码中大部分逻辑已被基类覆盖
-2. **preExecute 时机**: `preExecute` 在基类中是在 **费用部门、BU段、部门属性之前** 调用的，所以子类可以在此设置后续逻辑需要的前置数据
-3. **空实现是正确的**: 如果老代码的所有逻辑都被基类覆盖了，空实现就是正确答案（参考T047）
-4. **参数类型注意**: `preExecute` 的 claim 参数类型是 `TRmbsClaimBaseDto`，不是 `TRmbsClaimPageDto`
+## ⚠️ 常见坑点
 
-## 参考实现
+1. **大量重复** - 基类已包含非常多itemId的特殊处理
+2. **preExecute时机** - 在费用部门、BU段、部门属性**之前**调用
+3. **空实现是正确的** - 老代码逻辑全被基类覆盖时（参考T047）
+4. **参数类型** - claim参数类型是 `TRmbsClaimBaseDto`
 
-- T047: `T047NewClaimLineServiceImpl.java` (18行) - 空实现，基类已满足
-- 基类: `BaseNewClaimLineService.java` (183行) - 需仔细阅读理解全部逻辑
+---
 
-## 经验记录区
+## 📚 参考实现
 
-> 此区域用于记录实际迁移过程中发现的经验和教训。
-- TODO需要去检查是否有API可以调用，没有就需要创建
+- **T047**: `T047NewClaimLineServiceImpl.java` (18行) - 空实现，基类已满足
+- **基类**: `BaseNewClaimLineService.java` (183行) - 需仔细阅读
+
+---
+
+## 📝 经验记录区
+
+> 每次迁移后补充实战经验
+
+- TODO需要检查是否有API可调用，没有就需要创建
 - 迁移完成后需要检查一遍逻辑
-<!--
-格式：
-- [T{XXX}] {日期} {经验描述}
--->
+
+<!-- 格式: [T{XXX}] {日期} {经验描述} -->

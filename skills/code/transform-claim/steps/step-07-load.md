@@ -1,11 +1,11 @@
 # 步骤7：加载报账单 (Load Claim)
 
-## 概述
+## 📋 概述
 
 | 项目 | 内容 |
 |------|------|
-| **老代码** | `LoadAllT{XXX}Service.java`（通常有多个 LoadAll） |
-| **新代码** | `T{XXX}LoadClaimServiceImpl.java`（合并多个 LoadAll） |
+| **老代码** | `LoadAllT{XXX}Service.java` (通常有多个 LoadAll) |
+| **新代码** | `T{XXX}LoadClaimServiceImpl.java` (合并多个 LoadAll) |
 | **继承基类** | `BaseLoadClaimService` |
 | **接口** | `IT{XXX}LoadClaimService extends IBaseLoadClaimService` |
 | **核心方法** | `load(TRmbsClaimPageDto params, UserObjectFullDto user)` |
@@ -13,71 +13,111 @@
 | **特殊要求** | Bean命名: `@Service("loadAllT{XXX}ClaimService")` 或通过 `ClaimProcessEnum` |
 | **模板文件** | `templates/head/interface-load-template.java`, `templates/head/impl-load-template.java` |
 
-## 迁移策略
+---
+
+## 🔄 迁移策略
 
 ### 关键变更：多个 LoadAll 合并为一个
 
-**老框架**: 一个 T{XXX} 通常有多个 LoadAll Service（按 processStateEng 区分）：
+**老框架**: 按 `processStateEng` 分离
 - `LoadAllT{XXX}Service.java` (起草环节)
 - `LoadAllT{XXX}Service2.java` (会计审批环节)
 - `LoadAll2T{XXX}Service.java` (其他环节)
 
 **新框架**: 合并为一个 `T{XXX}LoadClaimServiceImpl`，在 `preResult()` 中通过 `processStateEng` 判断环节差异。
 
-### 第一步：定位老代码
+### 1. 定位老代码
 
-1. 搜索所有 `LoadAllT{XXX}*.java` 和 `LoadAll*T{XXX}*.java` 文件
-2. 记录每个文件的行数和对应环节
-3. **注意**: 可能有 2-3 个甚至更多的 LoadAll 文件
+- 搜索所有 `LoadAllT{XXX}*.java` 和 `LoadAll*T{XXX}*.java` 文件
+- 记录每个文件的行数和对应环节
+- **可能有 2-3 个甚至更多**
 
-### 第二步：分析老代码 execute() 方法
+### 2. 分析老代码
 
-老代码的 `execute()` 通常包含：
+老代码逻辑分类：
 
-```
-execute() {
-    // 模块A: 查报账单信息 → 基类已处理
-    // 模块B: 大类/小类信息加载 → 基类 loadCommonInfo 已处理
-    // 模块C: 合同信息加载 → 基类 loadCommonInfo 已处理
-    // 模块D: 明细行加载 → 基类 loadCommonInfo 已处理
-    // 模块E: 银行信息加载 → 基类 loadCommonInfo 已处理
-    // 模块F: 附件/影像加载 → 基类 loadCommonInfo 已处理
-    // 模块G: 权限校验 → 基类 permissionValidation 已处理
-    // 模块H: 黑名单信息 → 基类 loadAllBlacklist 已处理
-    // 模块I: 8段信息(viewBrInfo/viewCrInfo) → 需要迁移到 preResult
-    // 模块J: T{XXX}特有的数据加载 → 需要迁移到 preResult
-    // 模块K: 环节特有的数据加载 → 需要迁移到 preResult（判断 processStateEng）
-}
-```
+| 模块 | 功能 | 迁移方式 |
+|------|------|----------|
+| A-H | 查报账单、大类/小类、合同、明细行、银行、附件/影像、权限、黑名单 | ✅ 基类已处理 |
+| I | 8段信息(viewBrInfo/viewCrInfo) | 🔧 迁移到 preResult |
+| J | T{XXX}特有数据加载 | 🔧 迁移到 preResult |
+| K | 环节特有数据加载 | 🔧 迁移到 preResult (判断 processStateEng) |
 
-### 第三步：对照基类已实现能力
+### 3. 基类能力速查
 
-`BaseLoadClaimService.load()` 已实现的完整流程 (262行)：
+`BaseLoadClaimService.load()` (262行):
 
 ```
 load(params, user)
-  ├── claimService.loadToFullByClaimId(claimId) // 查报账单完整信息
-  ├── Assert.notNull(claimPageFull)              // 存在性校验
-  ├── claimPageFull.setOldClaim(params)           // 保存前端参数
-  ├── permissionValidation()                     // 权限校验
-  ├── loadCommonInfo():                          // 公共信息加载
-  │   ├── findItemLevel2()                       //   大类信息
-  │   ├── findItemLevel3()                       //   小类信息
-  │   ├── loadCmContract()                       //   合同信息
-  │   ├── loadAllLine()                          //   行信息
-  │   │   ├── findLines()                        //     明细行
-  │   │   ├── findClaimTaxLines()                //     税金行
-  │   │   ├── findPayLists()                     //     计划付款行
-  │   │   ├── findClaimRel()                     //     借款核销
-  │   │   └── findPayLines()                     //     发票核销
-  │   ├── loadAllBankList()                      //   银行信息
-  │   ├── findAttachment()                       //   附件列表
-  │   ├── findImage()                            //   电子影像
-  │   └── bt()                                   //   按钮权限
-  ├── preResult(claimPageFull, user)             // ★ 空钩子 → 子类重写点
-  ├── loadAllBlacklist()                         // 黑名单
-  ├── compensateMissingData()                    // 数据补偿
-  └── recordFinanceStartTime()                   // 记录会计审批开始时间
+  ├── loadToFullByClaimId → Assert.notNull
+  ├── permissionValidation                      // 权限校验
+  ├── loadCommonInfo():                          // 公共信息
+  │   ├── 大类/小类、合同、明细行
+  │   ├── 银行信息、附件、电子影像
+  │   └── 按钮权限
+  ├── preResult(claimPageFull, user)             // ★ 子类重写点
+  ├── loadAllBlacklist                           // 黑名单
+  ├── compensateMissingData                      // 数据补偿
+  └── recordFinanceStartTime                     // 记录时间
+```
+
+**基类已覆盖**（无需迁移）：
+- 所有公共信息加载、权限校验、黑名单
+
+### 4. 提取需迁移的逻辑
+
+**常见需迁移逻辑**:
+- 8段信息(viewBrInfo/viewCrInfo)
+- T{XXX}特有的扩展数据
+- 不同环节的差异化数据（通过processStateEng判断）
+
+### 5. 编写新代码
+
+1. 基于模板创建接口和实现类
+2. 在 preResult() 中加载T{XXX}特有数据
+3. 如有多个老LoadAll，合并逻辑并通过processStateEng分流
+
+---
+
+## ✅ 关键检查点
+
+### 分析阶段
+- [ ] 所有LoadAll老代码都已定位
+- [ ] 识别各环节的差异逻辑
+- [ ] 明确8段信息等特有加载
+
+### 编码阶段
+- [ ] 接口和实现类已创建
+- [ ] Bean名称正确配置
+- [ ] preResult中合并了所有环节逻辑
+
+### 验证阶段
+- [ ] 无编译错误
+- [ ] 所有环节的Load功能正常
+- [ ] 8段信息等特有数据正确加载
+
+---
+
+## ⚠️ 常见坑点
+
+1. **遗漏某个LoadAll** - 必须找全所有LoadAll文件
+2. **忘记环节判断** - 不同环节的差异逻辑需要通过processStateEng区分
+3. **重复加载公共信息** - loadCommonInfo基类已处理
+
+---
+
+## 📚 参考实现
+
+- **T047**: `T047LoadClaimServiceImpl.java`
+- **基类**: `BaseLoadClaimService.java` (262行)
+
+---
+
+## 📝 经验记录区
+
+> 每次迁移后补充实战经验
+
+<!-- 格式: [T{XXX}] {日期} {经验描述} -->
 ```
 
 **基类额外提供的工具方法**:

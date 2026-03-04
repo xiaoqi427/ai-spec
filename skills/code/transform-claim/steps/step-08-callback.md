@@ -1,6 +1,6 @@
-# 步骤8：BPM 回调 (Callback)
+# 步骤8：BPM回调 (Callback)
 
-## 概述
+## 📋 概述
 
 | 项目 | 内容 |
 |------|------|
@@ -12,72 +12,126 @@
 | **可重写钩子** | `executeExecute`, `executeEnd`, `executeDrawBack`, `executeUndo`, `executeDelete` 等 |
 | **模板文件** | `templates/bpm/interface-callback-template.java`, `templates/bpm/impl-callback-template.java` |
 
-## 迁移策略
+---
+
+## 🔄 迁移策略
 
 ### 核心概念：回调动作类型
 
-BPM 流程在不同节点会触发回调，每种动作对应不同的方法：
+BPM 流程在不同节点触发不同回调：
 
 | 回调方法 | 动作 | 说明 |
 |---------|------|------|
-| `executeExecuteRoot(data, full)` | 起草提交 | 起草环节提交到下一步 |
-| `executeExecute(data, full)` | 审批通过 | 审批环节通过到下一步 |
-| `executeEnd(data, full)` | 流程办结 | 流程最终完成 |
-| `executeDrawBack(data, full)` | 退回 | 退回到上一步/起草人 |
-| `executeUndo(data, full)` | 撤回 | 提交人撤回 |
-| `executeDelete(data, full)` | 删除 | 流程中删除 |
-| `executeTrun(data, full)` | 转办 | 转给其他人处理 |
-| `executeTesong(data, full)` | 特送 | 特殊发送 |
-| `executeAgent(data, full)` | 代理 | 代理审批 |
+| `executeExecuteRoot` | 起草提交 | 起草环节提交 |
+| `executeExecute` | 审批通过 | 审批通过到下一步 |
+| `executeEnd` | 流程办结 | **最重要** - 预算冻结、营销写入等 |
+| `executeDrawBack` | 退回 | 退回上一步 |
+| `executeUndo` | 撤回 | 提交人撤回 |
+| `executeDelete` | 删除 | 流程中删除 |
 
-### 第一步：定位老代码
+### 1. 定位老代码
 
-1. 找到 `CallBackT{XXX}Service.java`
-2. 记录文件总行数
-3. 识别老代码中的回调方法（通常在 switch/if 块中按 actionType 分支）
+- 路径: `CallBackT{XXX}Service.java`
+- 记录文件总行数
+- 识别 switch/if 中的 actionType 分支
 
-### 第二步：分析老代码回调逻辑
+### 2. 分析老代码
 
-老代码通常结构：
+老代码结构：
+
 ```java
 execute() {
     String actionType = data.getActionType();
     switch (actionType) {
-        case "execute":      // → 对应 executeExecute
-            // 审批通过逻辑
-            break;
-        case "end":          // → 对应 executeEnd
-            // 办结逻辑（预算冻结、营销写入、收款更新等）
-            break;
-        case "drawback":     // → 对应 executeDrawBack
-            // 退回逻辑（预算解冻等）
-            break;
-        case "undo":         // → 对应 executeUndo
-            // 撤回逻辑
-            break;
+        case "execute":   // → executeExecute
+        case "end":       // → executeEnd (重点)
+        case "drawback":  // → executeDrawBack
+        case "undo":      // → executeUndo
     }
 }
 ```
 
-### 第三步：对照基类已实现能力
+**重点关注 "end" 分支**（办结逻辑）：
+- 预算冻结/解冻
+- 营销数据写入
+- 收款信息更新
+- 其他外部系统回调
 
-`BaseCallBackClaimService` (515行) 已注入的服务和已实现的公共逻辑：
+### 3. 基类能力速查
 
-**已注入的15+ Service:**
-```
-claimService, writeDataService, moveClaimToHisService,
-pmProjectfreezeBudgetService, pmBudgetOperationService,
-tpmCallBackApiService, receiptCallBackApiService,
-fundCallBackApiService, cxCallBackApiService,
-paymentCallBackApiService, fundOperateInfoCallBackApiService,
-settleCallBackApiService, ...
-```
+`BaseCallBackClaimService` (515行):
 
-**统一入口 execute():**
+**已注入15+ Service**:
+- `claimService`, `writeDataService`, `moveClaimToHisService`
+- `pmProjectfreezeBudgetService`, `tpmCallBackApiService`
+- `receiptCallBackApiService`, `fundCallBackApiService` 等
+
+**统一入口**:
 ```
 execute(callBackBusinessData, consumer)
   ├── integrateBusinessData()           // 整合业务数据
-  │   ├── 查报账单完整信息
+  ├── 根据 actionType 分发到不同 execute{Action}
+  └── 各 execute{Action} 方法（默认空实现）
+```
+
+**基类已覆盖**（无需迁移）：
+- 数据整合、分发逻辑
+- 所有回调Service的注入
+
+### 4. 提取需迁移的逻辑
+
+**关键迁移点**：
+- `executeEnd` - 办结时的外部系统调用（预算、营销、收款等）
+- `executeDrawBack` - 退回时的回滚逻辑
+- 其他动作通常为空
+
+### 5. 编写新代码
+
+1. 基于模板创建接口和实现类
+2. 重写需要的 execute{Action} 方法
+3. **大多数情况只需重写 executeEnd**
+
+---
+
+## ✅ 关键检查点
+
+### 分析阶段
+- [ ] 老代码已定位，记录行数
+- [ ] 识别所有 actionType 分支
+- [ ] **重点关注 "end" 分支的逻辑**
+
+### 编码阶段
+- [ ] 接口和实现类已创建
+- [ ] 类上有 `@Slf4j` 和 `@Service`
+- [ ] executeEnd 中的外部调用已迁移
+
+### 验证阶段
+- [ ] 无编译错误
+- [ ] 办结流程正常（预算冻结等）
+- [ ] 退回流程正常（如有）
+
+---
+
+## ⚠️ 常见坑点
+
+1. **只关注 execute 忽略 end** - executeEnd 才是最重要的办结逻辑
+2. **遗漏外部系统调用** - 预算、营销、收款等API调用必须迁移
+3. **空实现是正常的** - 很多T{XXX}只需要 executeEnd，其他方法为空
+
+---
+
+## 📚 参考实现
+
+- **T047**: `T047CallBackClaimServiceImpl.java`
+- **基类**: `BaseCallBackClaimService.java` (515行)
+
+---
+
+## 📝 经验记录区
+
+> 每次迁移后补充实战经验
+
+<!-- 格式: [T{XXX}] {日期} {经验描述} -->
   │   ├── 设置flowId
   │   └── consumer.accept(full, data)   // 调具体回调方法
   └── claimService.save(full)           // 保存变更
@@ -192,7 +246,7 @@ public void executeEnd(CallBackBusinessDataDto data, TRmbsClaimPageFullDto full)
 - TODO需要去检查是否有API可以调用，没有就需要创建
 - 迁移完成后需要检查一遍逻辑
 - 工作流常用枚举类型ClaimProcessEnum
-- 
+- 分步进行，每步立即生成代码，以免浪费Credits
 <!--
 格式：
 - [T{XXX}] {日期} {经验描述}

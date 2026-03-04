@@ -1,6 +1,6 @@
 # 步骤5：删除报账单头 (Delete Claim Head)
 
-## 概述
+## 📋 概述
 
 | 项目 | 内容 |
 |------|------|
@@ -12,52 +12,104 @@
 | **可重写钩子** | `preExecute(TRmbsClaimPageDto claimDto, UserObjectFullDto user)` |
 | **模板文件** | `templates/head/interface-delete-template.java`, `templates/head/impl-delete-template.java` |
 
-## 迁移策略
+---
 
-### 重要提醒：基类已处理大量 itemId 分支
+## 🔄 迁移策略
 
-`BaseDeleteClaimService.delete()` 是一个**巨大的方法**（1185行），内部已包含了几乎所有 T{XXX} 的删除逻辑。子类通常只需要在 `preExecute()` 中做前置处理。
+### ⚠️ 重要提醒：基类已处理大量逻辑
 
-### 第一步：定位老代码
+`BaseDeleteClaimService.delete()` 是一个**巨大的方法**（1185行），内部已包含几乎所有 T{XXX} 的删除逻辑。**子类通常只需在 preExecute() 做前置处理**。
 
-1. 找到 `DeleteT{XXX}ClaimService.java`
-2. 记录文件总行数
+### 1. 定位老代码
 
-### 第二步：分析老代码 execute() 方法
+- 路径: `DeleteT{XXX}ClaimService.java`
+- 记录文件总行数
 
-老代码的 `execute()` 方法通常包含两大部分：
-1. **删除前的特殊处理**（T{XXX}独有）→ 可能需要迁移
-2. **通用删除逻辑**（清理关联表、移历史表等）→ 基类已处理
+### 2. 分析老代码
 
-### 第三步：对照基类已实现能力
+老代码通常包含两大部分：
 
-`BaseDeleteClaimService.delete(Long claimId)` 已实现的完整流程：
+| 部分 | 内容 | 迁移方式 |
+|------|------|----------|
+| 删除前处理 | T{XXX}特有的前置逻辑 | 🔧 迁移到 preExecute |
+| 通用删除 | 清理关联表、移历史等 | ✅ 基类已处理 |
+
+### 3. 基类能力速查
+
+`BaseDeleteClaimService.delete()` (1185行):
 
 ```
 delete(claimId)
   ├── 查报账单信息
-  ├── preExecute(claimDto, user)                    // ★ 空钩子 → 子类重写点
-  ├── validataClaim(claimDto)                       // 删除前校验
-  ├── [T041特殊处理]
-  ├── [T042特殊处理] - 调写转结果接口
-  ├── removeAppInvoiceAssData()                     // 删除发票关联
-  ├── claimInvoiceRecordLibraryApiService.release() // 还原发票池
-  ├── removeLibrary()                               // 释放防重库
-  ├── removeOcrCallbackOcrinvoice()                 // 释放OCR识别
-  ├── 删除税金表
-  ├── [T034] 牛奶T027子报账单删除
-  ├── [T034] 优然保理核销
-  ├── 删除付款计划表
-  ├── [T027/T030] 无票行信息释放
-  ├── [T012/T027] TMS/TW接口回传
-  ├── [T044] 承兑汇票释放
-  ├── [T014] 承兑汇票释放(T014版)
-  ├── [T049/T069] CVT记录+差额删除
-  ├── [T900] 采购方销售方关联释放
-  ├── [T038/T069] 金德瑞影像夹清空
-  ├── claimHisService.moveToHis()                   // 移动到历史表
-  ├── 消除待办
-  ├── 删除流程表数据
+  ├── preExecute(claimDto, user)                 // ★ 子类重写点
+  ├── validataClaim(claimDto)                    // 删除前校验
+  ├── [多个T{XXX}特殊处理 - 基类已包含]
+  ├── 删除发票关联 → 还原发票池 → 释放防重库
+  ├── 删除税金表 → 付款计划表
+  ├── [各种T{XXX}的特殊释放逻辑]
+  ├── moveToHis()                                // 移动到历史表
+  ├── 消除待办 → 删除流程数据
+  └── 删除报账单本身
+```
+
+**基类已覆盖**（无需迁移）：
+- T041/T042/T034/T027/T030/T012/T044/T014/T049/T069/T900/T038等的特殊处理
+- 发票关联、防重库、OCR、税金、付款计划、无票行、承兑汇票等清理
+
+### 4. 提取需迁移的逻辑
+
+**常见需迁移逻辑**：
+- T{XXX}特有的删除前校验
+- 基类未包含的特殊清理逻辑
+- **大多数情况下preExecute为空**
+
+### 5. 编写新代码
+
+1. 基于模板创建接口和实现类
+2. 通常只需继承，不需重写
+3. 如有特殊逻辑，在 preExecute() 中实现
+
+---
+
+## ✅ 关键检查点
+
+### 分析阶段
+- [ ] 老代码已定位，记录行数
+- [ ] 识别删除前的特殊处理
+- [ ] 确认基类是否已包含该T{XXX}的处理
+
+### 编码阶段
+- [ ] 接口和实现类已创建
+- [ ] 类上有 `@Slf4j` 和 `@Service`
+- [ ] 大多数情况下无需重写方法
+
+### 验证阶段
+- [ ] 无编译错误
+- [ ] 删除功能正常
+- [ ] 无重复实现基类逻辑
+
+---
+
+## ⚠️ 常见坑点
+
+1. **重复实现删除逻辑** - 基类的1185行代码已包含大量T{XXX}分支
+2. **遗漏查看基类** - 必须仔细阅读基类，确认是否已有该T{XXX}的处理
+3. **空实现是正常的** - 大多数T{XXX}的DeleteService都是空实现
+
+---
+
+## 📚 参考实现
+
+- **T047**: `T047DeleteClaimServiceImpl.java` - 空实现
+- **基类**: `BaseDeleteClaimService.java` (1185行) - 必须仔细阅读
+
+---
+
+## 📝 经验记录区
+
+> 每次迁移后补充实战经验
+
+<!-- 格式: [T{XXX}] {日期} {经验描述} -->
   ├── [T034] 对账单状态+牛奶+PO关联+开票系统
   ├── [T039/T034] PO关联+结算单封锁
   ├── [T046] AR余额删除

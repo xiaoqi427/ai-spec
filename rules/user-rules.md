@@ -335,8 +335,13 @@ proactive_code_review: true
 * 抽离出的方法，方法注释上要写出原来代码对应行数
 * 不要遗漏代码
 * 代码先迁移过来，再用新框架看情况是否需要重构，方法尽量和之前保持一致
-* 删除文件，删除代码都要先确认
 
 ## 代码规范
 * 不能对传入的变量重新赋值，对象set可以
 * mybatis plus就能实现的不要创建SQL
+* 迁移老代码到新代码，在新代码中要写好老代码到行数
+* 导入包，别直接写在代码里面
+* mybatis单表尽量用后面wrapper，LambdaQueryWrapperX
+* 如果是常量尽量在[fssc-common-constant]模块中找一找
+* 如果在[fssc-config-service]模块中的mapper,就需要找API有没有可用的，没有可以的，就需要创建API
+* 尽量import导入包，不要写在代码过程里面

@@ -1,6 +1,6 @@
 # 步骤6：删除报账单行 (Delete Claim Line)
 
-## 概述
+## 📋 概述
 
 | 项目 | 内容 |
 |------|------|
@@ -12,52 +12,88 @@
 | **可重写钩子** | `deleteClaimLine()` 整体重写 或 `after(claimLineDto)` |
 | **模板文件** | `templates/line/interface-delete-template.java`, `templates/line/impl-delete-template.java` |
 
-## 迁移策略
+---
 
-### 第一步：定位老代码
+## 🔄 迁移策略
 
-1. 找到 `DeleteT{XXX}ClaimLineService.java`
-2. 记录文件总行数
+### 1. 定位老代码
 
-### 第二步：分析老代码 execute() 方法
+- 路径: `DeleteT{XXX}ClaimLineService.java`
+- 记录文件总行数
 
-老代码通常包含：
-```
-execute() {
-    // 模块A: 查行数据和报账单数据 → 基类已处理
-    // 模块B: 删除附件关联 → 基类已处理
-    // 模块C: 删除无票行记录(CVT) → 基类已处理
-    // 模块D: 删除差额记录 → 基类已处理
-    // 模块E: 删除税金行 → 基类已处理
-    // 模块F: 删除手机费额度 → 基类已处理
-    // 模块G: 删除发票核销关联 → 基类已处理
-    // 模块H: 删除行数据本身 → 基类已处理
-    // 模块I: processAmount 金额重算 → 基类 after 已处理
-    // 模块J: T{XXX}特有的删除逻辑 → 需要迁移
-}
-```
+### 2. 分析老代码
 
-### 第三步：对照基类已实现能力
+老代码逻辑分类：
 
-`BaseDeleteClaimLineService` 已实现的完整流程 (228行)：
+| 模块 | 功能 | 迁移方式 |
+|------|------|----------|
+| A-H | 查行、删附件、CVT、差额、税金、手机费、发票、行数据 | ✅ 基类已处理 |
+| I | processAmount 金额重算 | ✅ 基类 after 已处理 |
+| J | T{XXX}特有删除逻辑 | 🔧 需要迁移 |
+
+### 3. 基类能力速查
+
+`BaseDeleteClaimLineService` (228行):
 
 ```
-deleteClaimLine(claimLineDto)  [带 @Transactional]
-  ├── 查报账单: claimDoService.findByClaimId()
-  ├── 附件挂载模式处理 (IMAGE_MOUNT_MODE)
-  ├── 删除附件关联: claimInvoiceRelationDoService.deleteByClaimLineId()
-  ├── 删除无票行记录(CVT): cvtRecordDoService.deleteByClaimLineId()
-  ├── 删除差额记录: lineDiffAmountDoService.deleteByClaimLineId()
-  ├── 删除税金行: claimLineTaxDoService.deleteByClaimLineId()
-  ├── 删除手机费额度: mobileFeeQuotaDoService.deleteByClaimLineId()
-  ├── 删除发票核销关联: claimInvoiceRelationDoService.deleteByClaimLineId()
-  ├── claimLineDoService.deleteByClaimLineId() // 删除行本身
-  └── after(claimLineDto)                       // ★ 默认调 processAmount
+deleteClaimLine(claimLineDto)  [@Transactional]
+  ├── 查报账单 → 附件挂载模式处理
+  ├── 删除附件、CVT、差额、税金、手机费、发票核销
+  ├── 删除行本身
+  └── after(claimLineDto)                        // ★ 默认调 processAmount
 ```
 
-### 第四步：提取需迁移的逻辑
+**基类已覆盖**（无需迁移）：
+- 所有关联表清理、金额重算
 
-大部分行删除的通用逻辑基类已覆盖。常见需要迁移的：
+### 4. 提取需迁移的逻辑
+
+**大多数情况下无需迁移**，基类已包含所有通用逻辑。
+
+### 5. 编写新代码
+
+1. 基于模板创建接口和实现类
+2. 通常只需继承，不需重写
+3. 极少情况需要重写 after()
+
+---
+
+## ✅ 关键检查点
+
+### 分析阶段
+- [ ] 老代码已定位，记录行数
+- [ ] 确认无特殊删除逻辑
+
+### 编码阶段
+- [ ] 接口和实现类已创建
+- [ ] 类上有 `@Slf4j` 和 `@Service`
+- [ ] 大多数情况下无需重写
+
+### 验证阶段
+- [ ] 无编译错误
+- [ ] 删除功能正常
+
+---
+
+## ⚠️ 常见坑点
+
+1. **重复实现金额重算** - after中的processAmount基类已调用
+2. **空实现是正常的** - 大多数DeleteLineService都是空实现
+
+---
+
+## 📚 参考实现
+
+- **T047**: `T047DeleteClaimLineServiceImpl.java` - 空实现
+- **基类**: `BaseDeleteClaimLineService.java` (228行)
+
+---
+
+## 📝 经验记录区
+
+> 每次迁移后补充实战经验
+
+<!-- 格式: [T{XXX}] {日期} {经验描述} -->
 
 1. **自定义金额重算**: 某些 T{XXX} 的 processAmount 逻辑不同（如T047需要额外的 preProcess/afterProcess）
 2. **额外的关联数据清理**: 基类未覆盖的 T{XXX} 特有关联表
