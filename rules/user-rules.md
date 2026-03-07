@@ -55,7 +55,7 @@ log_variable_name: log
 log_style: |
   // 优先使用占位符而非字符串拼接
   log.info("用户ID: {}, 操作: {}", userId, operation);
-  
+
   // 错误日志带异常堆栈
   log.error("处理失败: {}", message, exception);
 ```
@@ -115,7 +115,7 @@ comment_detail_level: 适中
 ```java
 /**
  * 业务方法说明
- * 
+ *
  * @param xxx 参数说明
  * @return 返回值说明
  * @throws XxxException 异常说明
@@ -131,7 +131,7 @@ comment_detail_level: 适中
 exception_handling: |
   // 优先使用自定义业务异常
   throw new BusinessException(ErrorCode.INVALID_PARAM, "参数不合法");
-  
+
   // Service 层抛出异常,Controller 层统一处理
   // 不要在 Service 层 catch 后返回 null
 ```
@@ -245,11 +245,11 @@ prefer_optional: true
 # 提交信息格式
 commit_message_format: |
   <type>(<scope>): <subject>
-  
+
   <body>
-  
+
   <footer>
-  
+
   # type: feat/fix/docs/style/refactor/test/chore
   # 示例: feat(claim): 新增资产报账单导出功能
 
@@ -345,3 +345,4 @@ proactive_code_review: true
 * 如果是常量尽量在[fssc-common-constant]模块中找一找
 * 如果在[fssc-config-service]模块中的mapper,就需要找API有没有可用的，没有可以的，就需要创建API
 * 尽量import导入包，不要写在代码过程里面
+* 能往上抛异常的往上抛，框架处理，尽量不捕获异常，业务需要可以捕获异常

@@ -1,0 +1,16 @@
+SELECT
+    lo.SESSION_ID AS sid,
+    s.USERNAME,
+    s.MACHINE,
+    s.PROGRAM,
+    s.STATUS,
+    o.OWNER,
+    o.OBJECT_NAME,
+    o.OBJECT_TYPE,
+    -- 查看具体的 SQL 文本
+    sql.SQL_TEXT,
+    sql.SQL_FULLTEXT
+FROM V$LOCKED_OBJECT lo
+JOIN DBA_OBJECTS o ON lo.OBJECT_ID = o.OBJECT_ID
+JOIN V$SESSION s ON lo.SESSION_ID = s.SID
+LEFT JOIN V$SQL sql ON s.SQL_ID = sql.SQL_ID;

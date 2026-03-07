@@ -84,9 +84,9 @@ PROMPT
 SELECT 
     tablespace_name,
     ROUND(tablespace_size/1024/1024, 2) total_mb,
-    ROUND(used_space/1024/1024, 2) used_mb,
+    ROUND((ALLOCATED_SPACE-free_space)/1024/1024, 2) used_mb,
     ROUND(free_space/1024/1024, 2) free_mb,
-    ROUND(used_space/tablespace_size*100, 2) used_pct
+    ROUND((ALLOCATED_SPACE-free_space)/tablespace_size*100, 2) used_pct
 FROM dba_temp_free_space
 ORDER BY used_pct DESC;
 
