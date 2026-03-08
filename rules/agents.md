@@ -1309,6 +1309,30 @@ Usage notes:
 <location>project</location>
 </skill>
 
+<skill>
+<name>pmbok-process-guide</name>
+<description>基于《PMBOK 指南》(第7版) 的项目管理标准过程查询与模板生成技能。提供五大过程组、十大知识领域的标准流程查询，WBS、风险登记册、干系人登记册等核心文档模板自动生成，以及过程裁剪建议。当用户需要项目管理过程指导、文档模板、ITTO查询时使用。触发词："项目管理"、"PMBOK"、"WBS"、"风险登记册"、"干系人分析"。详见 /ai-spec/skills/pm/PMBOK_Process_Guide/SKILL.md</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>toolkit-100-tips</name>
+<description>基于《项目管理工具箱》的 100 个实战技巧检索技能。覆盖项目启动、规划、执行、监控、收尾全生命周期的具体问题解决方案和检查清单。当用户遇到具体的项目管理问题需要实用技巧时使用。触发词："项目技巧"、"进度延误"、"需求蔓延"、"团队管理"、"项目复盘"。详见 /ai-spec/skills/pm/Toolkit_100_Tips/SKILL.md</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>agile-scrum-helper</name>
+<description>基于《Scrum 指南》(2020版) 的敏捷仪式引导与工件生成技能。提供 Sprint 计划会、每日站会、评审会、回顾会的引导话术，以及产品待办列表等工件模板。当用户需要组织Scrum仪式或解决敏捷实践问题时使用。触发词："Scrum"、"敏捷"、"Sprint"、"站会"、"回顾会"、"用户故事"。详见 /ai-spec/skills/pm/Agile_Scrum_Helper/SKILL.md</description>
+<location>project</location>
+</skill>
+
+<skill>
+<name>comm-pyramid-optimizer</name>
+<description>基于《金字塔原理》(Barbara Minto) 的汇报材料逻辑重构技能。运用 MECE、SCQA、归纳/演绎等结构化思维工具优化汇报PPT、邮件、口头报告的逻辑结构。当用户需要梳理汇报逻辑、优化沟通材料、检查论证结构时使用。触发词："金字塔原理"、"MECE"、"SCQA"、"逻辑结构"、"汇报材料"、"结论先行"。详见 /ai-spec/skills/pm/Comm_Pyramid_Optimizer/SKILL.md</description>
+<location>project</location>
+</skill>
+
 </available_skills>
 <!-- SKILLS_TABLE_END -->
 
