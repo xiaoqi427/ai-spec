@@ -1,6 +1,5 @@
 package com.yili.claim.{{module}}.claim.t{{templateNumLower}}.line.impl;
 
-import com.yili.claim.common.service.line.dto.TRmbsClaimLineDto;
 import com.yili.claim.common.service.line.service.impl.BaseDeleteClaimLineService;
 import com.yili.claim.{{module}}.claim.t{{templateNumLower}}.line.IT{{templateNum}}DeleteClaimLineService;
 import lombok.extern.slf4j.Slf4j;

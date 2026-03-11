@@ -1,0 +1,128 @@
+# ========================================
+# submitValidate 接口批量测试 - 配置文件
+# ========================================
+
+# 服务器配置
+server:
+  # 目标服务器基础地址（不含路径）
+  base_url: "http://pri-fssc-api-sit.digitalyili.com/api/claim"
+  # 请求超时时间（秒）
+  timeout: 30
+  # 连接超时时间（秒）
+  connect_timeout: 10
+
+# 登录配置（auth.type=login 时生效）
+login:
+  # 是否启用自动登录
+  enabled: true
+  # 登录接口完整 URL
+  url: "http://pri-fssc-api-sit.digitalyili.com/api/config/sys/login"
+  # 登录用户名
+  usernum: "fsscadmin"
+  # 登录密码
+  password: "2"
+
+# 认证配置
+auth:
+  # 认证方式: none / login / token / cookie / basic
+  #   login  - 先调用登录接口获取 Cookie，自动注入后续请求（推荐）
+  #   token  - 直接使用 Bearer Token
+  #   cookie - 直接使用 Cookie 字符串
+  #   basic  - HTTP Basic Auth
+  #   none   - 无认证
+  type: "login"
+  # Bearer Token（当 type=token 时使用）
+  token: ""
+  # Cookie 字符串（当 type=cookie 时使用）
+  cookie: ""
+  # Basic Auth 用户名/密码（当 type=basic 时使用）
+  username: ""
+  password: ""
+  # 自定义请求头（补充认证或其他头信息）
+  custom_headers:
+    # X-Tenant-Id: "1"
+    # X-User-Id: "admin"
+
+# Excel 输入配置
+excel:
+  # 输入 Excel 文件路径
+  input_path: "./excel/test_input.xlsx"
+  # 工作表名称
+  sheet_name: "Sheet1"
+  # 列名映射
+  columns:
+    claim_id: "claimId"
+    item_id: "itemId"
+
+# 输出配置
+output:
+  # 输出 Excel 文件路径
+  output_path: "./output/test_result_{timestamp}.xlsx"
+  # 输出目录
+  output_dir: "./output"
+
+# URL 构造规则
+url:
+  # URL 模板，支持占位符：{base_url}、{service_path}、{item_id}
+  # {service_path} 会根据 routing 配置自动解析（如 /eer、/ptp，claim 类型则为空）
+  template: "{base_url}{service_path}/{item_id}/submitValidate"
+
+# 路由配置：itemId 到 service_path 的映射
+# 根据前端 claimService 映射表（fssc-web/src/page/claim/base/service/index.js）
+routing:
+  # 默认 service_path（当 itemId 未匹配到任何规则时使用）
+  default_service_path: ""
+  # itemId → service_path 映射（匹配方式：itemId 包含列表中的子串）
+  rules:
+    otc:
+      service_path: "/otc"
+      items: ["T040", "T043", "T045", "T046", "T047", "T048"]
+    eer:
+      service_path: "/eer"
+      items: ["T001", "T002", "T003", "T004", "T005", "T006", "T007", "T008", "T009", "T011", "T013", "T036", "T037"]
+    ptp:
+      service_path: "/ptp"
+      items: ["T010", "T012", "T026", "T027", "T034", "T038", "T039", "T041", "T042", "T049"]
+    tr:
+      service_path: "/tr"
+      items: ["T014","T015", "T016", "T044", "T065"]
+    rtr:
+      service_path: "/rtr"
+      items: ["T017", "T018", "T019", "T020", "T028", "T035"]
+    fa:
+      service_path: "/fa"
+      items: ["T030", "T053", "T054", "T056", "T059"]
+    claim:
+      service_path: ""
+      items: ["T022","T023", "T031", "T032", "T033", "T050", "T051", "T052", "T057", "T900"]
+
+# 并发控制
+concurrency:
+  # 是否启用并发
+  enabled: false
+  # 最大并发数
+  max_workers: 3
+  # 每个请求之间的间隔（秒），避免服务器压力过大
+  request_interval: 0.5
+
+# 重试配置
+retry:
+  # 最大重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_interval: 2
+  # 触发重试的 HTTP 状态码
+  retry_on_status_codes:
+    - 500
+    - 502
+    - 503
+    - 504
+
+# 日志配置
+log:
+  # 日志级别: DEBUG / INFO / WARNING / ERROR
+  level: "INFO"
+  # 日志文件路径
+  log_file: "./logs/submit_validate_test.log"
+  # 控制台输出
+  console_output: true

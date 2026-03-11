@@ -1,18 +1,22 @@
 ---
 name: compare-transform
-description: 报账单老新代码对比分析器。对比老代码（yldc-caiwugongxiangpingtai-fsscYR-master）与新框架代码（fssc-claim-service），输出对比报告、检测迁移Bug、定位代码上下文、提供省钱策略。当用户需要对比老新代码差异、检查迁移是否有遗漏/Bug、或者想找某个功能在新代码中的位置时使用。
+description: 报账单老新代码对比分析器。对比老代码（yldc-caiwugongxiangpingtai-fsscYR-master）与新框架代码（fssc-claim-service），输出对比报告、检测迁移Bug、定位代码上下文、提供省钱策略，支持文件级/方法级迁移分析和逻辑深度对比。当用户需要对比老新代码差异、检查迁移是否有遗漏/Bug、或者想找某个功能在新代码中的位置时使用。
 ---
 # Compare Transform Skill（报账单老新代码对比分析器）
 @author: sevenxiao
 
 ## 📋 概述
 
-此 skill 专注于**对比老代码与新框架迁移代码**，提供4大核心能力：
+此 skill 专注于**对比老代码与新框架迁移代码**，提供8大核心能力：
 
 1. **`--compare`** 输出老新代码对比 Markdown 报告
 2. **`--bug-check`** 检查新代码流程明显 Bug / 迁移遗漏
 3. **`--save-cost`** 省钱策略（减少 Token 消耗的最优搜索路径）
 4. **`--locate`** 输入新代码上下文，快速定位相关文件和逻辑
+5. **`--file-migrate`** 文件级别迁移分析：分析老文件，输出新文件应如何实现（新文件可能不存在）
+6. **`--method-migrate`** 方法级别迁移分析：分析老方法，输出新方法应如何实现（新文件可能不存在）
+7. **`--logic-diff`** 两个已存在文件之间的逻辑深度对比分析
+8. **`--method-diff`** 两个已存在方法之间的逻辑深度对比分析
 
 ---
 
@@ -30,6 +34,18 @@ description: 报账单老新代码对比分析器。对比老代码（yldc-caiwu
 
 # 功能4: 上下文定位
 /skill compare-transform --locate <关键词/类名/方法名>
+
+# 功能5: 文件级别迁移分析（新文件可能不存在，输出迁移指导）
+/skill compare-transform --file-migrate <老文件路径> [<新文件路径>]
+
+# 功能6: 方法级别迁移分析（新文件可能不存在，输出迁移指导）
+/skill compare-transform --method-migrate <老文件路径>#<方法名> [<新文件路径>#<方法名>]
+
+# 功能7: 两文件逻辑深度对比
+/skill compare-transform --logic-diff <文件路径A> <文件路径B>
+
+# 功能8: 两方法逻辑深度对比
+/skill compare-transform --method-diff <文件路径A>#<方法名> <文件路径B>#<方法名>
 ```
 
 **示例**:
@@ -45,6 +61,34 @@ description: 报账单老新代码对比分析器。对比老代码（yldc-caiwu
 
 # 找 "updateClaimLineFromClaim" 方法在新代码哪里
 /skill compare-transform --locate updateClaimLineFromClaim
+
+# 文件级别迁移分析：分析老文件，新文件不存在时直接给迁移方案
+/skill compare-transform --file-migrate \
+  yldc-caiwugongxiangpingtai-fsscYR-master/.../InsertT044ClaimService.java
+
+# 文件级别迁移分析：新文件已存在时，对比并补全遗漏
+/skill compare-transform --file-migrate \
+  yldc-caiwugongxiangpingtai-fsscYR-master/.../InsertT044ClaimService.java \
+  fssc-claim-service/claim-otc-service/.../T044SaveClaimServiceImpl.java
+
+# 方法级别迁移分析：只提供老方法，输出新方法迁移方案
+/skill compare-transform --method-migrate \
+  yldc-caiwugongxiangpingtai-fsscYR-master/.../InsertT044ClaimService.java#execute
+
+# 方法级别迁移分析：提供新旧方法，检查迁移是否完整
+/skill compare-transform --method-migrate \
+  yldc-caiwugongxiangpingtai-fsscYR-master/.../InsertT044ClaimService.java#execute \
+  fssc-claim-service/claim-otc-service/.../T044SaveClaimServiceImpl.java#saveClaimHead
+
+# 两文件逻辑对比
+/skill compare-transform --logic-diff \
+  fssc-claim-service/claim-otc-service/.../T044SaveClaimServiceImpl.java \
+  fssc-claim-service/claim-tr-service/.../T001SaveClaimServiceImpl.java
+
+# 两方法逻辑对比
+/skill compare-transform --method-diff \
+  fssc-claim-service/claim-otc-service/.../T044SubmitClaimServiceImpl.java#validate \
+  fssc-claim-service/claim-tr-service/.../T001SubmitClaimServiceImpl.java#validate
 ```
 
 ---
@@ -307,6 +351,314 @@ yldc-caiwugongxiangpingtai-fsscYR-master/src/com/ibm/gbs/efinance/business/ylSer
 
 ---
 
+## 📄 功能5: 文件级别迁移分析 (`--file-migrate`)
+
+### 目标
+分析**老代码文件**的逻辑，输出迁移到新框架的完整指导方案。  
+**新文件可能不存在**（此时输出完整迁移方案）；**新文件已存在**时，额外检查迁移是否有遗漏。
+
+### 两种模式
+
+**模式A：只提供老文件（新文件不存在）**
+> 读取老文件 → 分析所有逻辑 → 输出「应该如何迁移」的完整方案，包括：需要创建哪些新文件、每个方法如何映射到新框架
+
+**模式B：同时提供新老文件（新文件已存在）**
+> 读取两个文件 → 对比迁移完整度 → 找出遗漏逻辑 → 输出补全建议
+
+### 执行流程
+
+**Step 1: 读取老文件，提取全量逻辑清单**
+- 提取所有方法签名、业务逻辑段落（精确到行号）
+- 标注哪些是已注释代码（无需迁移）
+- 标注哪些可能由基类处理（需在新框架中确认）
+
+**Step 2（模式A）: 推断新框架映射方案**
+- 根据老方法功能，映射到新框架对应的 Override 方法
+- 参考同模块已迁移文件的模式
+- 输出每个老逻辑块在新框架中的落地位置
+
+**Step 2（模式B）: 对比已有新文件，检查遗漏**
+- 读取新文件，提取所有 Override 方法
+- 逐一核对老文件逻辑块在新文件中的覆盖情况
+
+**Step 3: 输出报告**
+
+### 输出格式
+
+````markdown
+## 📄 文件级迁移分析: `{老文件名}`
+
+### 老文件概览
+| 项 | 信息 |
+|----|------|
+| 路径 | `{老文件路径}` |
+| 总行数 | {N} 行 |
+| 方法数 | {N} 个 |
+| 新文件状态 | 📁 不存在（模式A）/ ✅ 已存在（模式B） |
+
+### 逻辑清单 & 迁移映射
+
+| # | 老方法/逻辑块 (行号) | 功能描述 | 新框架落地位置 | 迁移状态 | 备注 |
+|---|------------|---------|------------|--------|------|
+| 1 | `execute()` L23-L89 | 保存报账单头 | `saveClaimHead()` 重写 | ✅ 已迁移/📋 待迁移 | |
+| 2 | `validate()` L91-L120 | 字段校验 | `validation()` 重写 | ✅ 已迁移/📋 待迁移 | |
+| 3 | `initParam()` L122-L150 | 初始化参数 | `before()` 重写 | 🔕 已注释 | 老代码已注释 |
+
+### 待迁移逻辑详情（模式A 重点输出）
+
+#### 逻辑块 {N}: `{老方法名}()` → 新框架 `{新方法名}()`
+- **老代码** (L{XX}-L{XX}) 核心逻辑:
+  - 行 L{XX}: {逻辑描述}
+  - 行 L{XX}-L{XX}: {逻辑描述}
+- **迁移建议**:
+  - 在 `{新文件类名}` 中重写 `{新方法名}()`
+  - 注意: {特殊处理说明，如 ClaimTemplateEnum 替换、BigDecimal 精度等}
+- **参考**: 同类已迁移文件 `{参考文件路径}` L{XX}
+
+### 遗漏/差异汇总（模式B 额外输出）
+| 老代码行 | 逻辑描述 | 状态 | 说明 |
+|---------|---------|------|------|
+| L{XX}-L{XX} | {描述} | ❓遗漏 / ⚠️有差异 | {说明} |
+
+### 迁移完成度
+- 模式A: 共 {N} 个逻辑块，🔕 已注释 {N} 个，📋 待迁移 {N} 个
+- 模式B: 已迁移 {N}/{N}，遗漏 {N} 处，差异 {N} 处
+````
+
+---
+
+## 🔬 功能6: 方法级别迁移分析 (`--method-migrate`)
+
+### 目标
+分析**老方法**的逻辑，输出迁移到新框架的完整指导方案。  
+**新方法可能不存在**（此时输出完整迁移方案）；**新方法已存在**时，额外检查迁移是否有遗漏。
+
+### 两种模式
+
+**模式A：只提供老方法（新方法不存在）**
+> 读取老方法 → 逐逻辑块分析 → 输出「应该如何在新框架中实现」的完整方案
+
+**模式B：同时提供新老方法（新方法已存在）**
+> 读取两个方法 → 逐逻辑块核对 → 找出遗漏逻辑 → 输出补全建议
+
+### 执行流程
+
+**Step 1: 精确定位老方法边界，提取完整逻辑块清单**
+- 在老文件中找到指定方法，记录起止行号
+- 解析方法体：提取所有逻辑片段（判断、循环、调用、赋值等）
+- 标注哪些是已注释代码（🔕 无需迁移）
+- 推断哪些在新框架基类中已有对应实现（✅ 基类覆盖）
+
+**Step 2（模式A）: 推断新框架落地位置**
+- 每个逻辑块 → 在新框架哪个方法中实现
+- 注意新框架的方法名变更规则、ClaimTemplateEnum 替换等
+
+**Step 2（模式B）: 定位新方法，逐逻辑块核对**
+- 在新文件中找到指定方法，记录起止行号
+- 逐一核对老方法每个逻辑块在新方法中的覆盖情况
+
+**Step 3: 输出报告**
+
+### 输出格式
+
+````markdown
+## 🔬 方法级迁移分析: `{老文件名}#{老方法名}()`
+
+### 方法概览
+| 项 | 老方法 | 新方法 |
+|----|--------|--------|
+| 文件 | `{老文件路径}` | `{新文件路径}` / 不存在 |
+| 行号 | L{XX}-L{XX} | L{XX}-L{XX} / — |
+| 总行数 | {N} 行 | {N} 行 / — |
+| 模式 | — | 模式A（新方法不存在）/ 模式B（已存在） |
+
+### 逻辑块清单 & 迁移映射
+
+| # | 老方法逻辑块 (行号) | 逻辑描述 | 新框架落地位置 | 迁移状态 |
+|---|------------|---------|------------|--------|
+| 1 | L{XX}-L{XX} | 参数校验: claimId 非空 | `validation()` L{XX} | ✅已迁移 / 📋待迁移 |
+| 2 | L{XX}-L{XX} | 查询报账单头 | `saveClaimHead()` L{XX} | ✅已迁移 / 📋待迁移 |
+| 3 | L{XX}-L{XX} | 发送 MQ 消息 | `after()` 重写 | ❓遗漏 |
+| 4 | L{XX}-L{XX} | // 已注释逻辑 | — | 🔕已注释 |
+| 5 | L{XX}-L{XX} | 更新状态 | 基类 `BaseSaveOrUpdateClaimService` | ✅基类覆盖 |
+
+### 待迁移逻辑详情（模式A 重点输出）
+
+#### 逻辑块 {N}: {逻辑描述} → 新框架 `{新方法名}()`
+- **老代码** (L{XX}-L{XX}):
+```java
+// 老代码关键逻辑（保留行号注释）
+```
+- **迁移建议**:
+  - 在 `{新框架方法名}()` 中实现
+  - 注意: {特殊处理说明}
+- **参考**: `{同类已迁移文件}` L{XX}
+
+### 遗漏/差异详情（模式B 额外输出）
+
+#### ❓ 遗漏项 {N}: {描述}
+- **老方法** (L{XX}-L{XX}): {逻辑描述}
+- **新方法**: 未找到对应实现
+- **建议**: {补全方案}
+
+### 迁移完成度
+- 共 {N} 个逻辑块：✅已迁移 {N} | ✅基类覆盖 {N} | 🔕已注释 {N} | ❓遗漏 {N} | 📋待迁移 {N}
+````
+
+---
+
+## 🧮 功能7: 两文件逻辑深度对比 (`--logic-diff`)
+
+### 目标
+对**任意两个文件**（不区分新老，可以是两个新文件、两个同类模块的实现文件等）进行深度逻辑对比，找出相同点、差异点和特殊处理。
+
+### 适用场景
+- 对比两个模块的同类实现（如 T044 的 Submit vs T001 的 Submit）
+- 对比重构前后的两个版本
+- 找出某模板特有的业务逻辑
+
+### 执行流程
+
+**Step 1: 读取两个文件并分析结构**
+- 提取文件A、文件B的类声明、继承关系、字段、方法列表
+- 建立方法名对应关系（同名方法直接对比，不同名方法按功能推断）
+
+**Step 2: 方法维度对比**
+- 逐方法分析：相同方法名的实现差异
+- 独有方法：文件A有但文件B没有，反之亦然
+
+**Step 3: 业务逻辑特征提取**
+- 提取每个文件的业务特征（特殊字段处理、特殊校验等）
+
+### 输出格式
+
+````markdown
+## 🧮 逻辑深度对比: `{文件A名}` vs `{文件B名}`
+
+### 文件概览
+| 项 | 文件A | 文件B |
+|----|-------|-------|
+| 路径 | `{路径A}` | `{路径B}` |
+| 总行数 | {N} 行 | {N} 行 |
+| 继承自 | `{基类A}` | `{基类B}` |
+| 方法数 | {N} 个 | {N} 个 |
+
+### 方法对比矩阵
+| 方法名 | 文件A | 文件B | 差异等级 |
+|-------|-------|-------|--------|
+| `validate()` | L{XX}-L{XX} | L{XX}-L{XX} | 🟡 部分差异 |
+| `saveClaimHead()` | L{XX}-L{XX} | — | 🔵 仅A有 |
+| `preProcess()` | — | L{XX}-L{XX} | 🔵 仅B有 |
+| `buildDto()` | L{XX}-L{XX} | L{XX}-L{XX} | 🟢 基本相同 |
+
+差异等级: 🟢完全相同 🟡部分差异 🔴逻辑差异大 🔵仅一方有
+
+### 核心差异分析
+
+#### 差异1: `{方法名}()` — {差异等级}
+**文件A实现** (L{XX}-L{XX}):
+- {逻辑要点1}
+- {逻辑要点2}
+
+**文件B实现** (L{XX}-L{XX}):
+- {逻辑要点1}
+- {特殊处理: {描述}}
+
+**关键差异**:
+| 维度 | 文件A | 文件B |
+|------|-------|-------|
+| 校验逻辑 | {描述} | {描述} |
+| 数据处理 | {描述} | {描述} |
+| 异常处理 | {描述} | {描述} |
+
+### 文件A特有逻辑
+- {描述A独有的业务逻辑}
+
+### 文件B特有逻辑
+- {描述B独有的业务逻辑}
+
+### 共同模式
+- {描述两者共同的实现模式}
+
+### 分析结论
+{综合评估：两个实现的相似度、差异原因（业务差异/重构改进/Bug修复等）}
+````
+
+---
+
+## ⚡ 功能8: 两方法逻辑深度对比 (`--method-diff`)
+
+### 目标
+对**任意两个方法**进行最细粒度的逻辑对比，逐语句分析差异，找出潜在 Bug 和改进点。
+
+### 适用场景
+- 对比同一方法在不同模块的实现差异
+- 排查某方法重构后是否有逻辑遗漏
+- 寻找某模板特有的业务逻辑处理
+
+### 执行流程
+
+**Step 1: 精确提取两个方法的完整方法体**
+- 方法A: `{文件路径A}` 中的 `{方法名}()`，行号 L{XX}-L{XX}
+- 方法B: `{文件路径B}` 中的 `{方法名}()`，行号 L{XX}-L{XX}
+
+**Step 2: 语句级别对比**
+- 对齐两个方法的语句序列
+- 标注：相同语句 / 语义等价语句 / 差异语句 / 独有语句
+
+**Step 3: 语义等价性分析**
+- 即使写法不同，分析是否语义等价（如 `a.equals(b)` vs `Objects.equals(a,b)`）
+- 标注语义差异（执行结果不同）
+
+### 输出格式
+
+````markdown
+## ⚡ 方法逻辑深度对比
+
+### 对比目标
+- **方法A**: `{文件A名}#{方法名A}()` (L{XX}-L{XX}, {N}行)
+- **方法B**: `{文件B名}#{方法名B}()` (L{XX}-L{XX}, {N}行)
+
+### 语句级对比（Side-by-Side）
+
+| # | 方法A (行) | 方法A 代码 | 等价性 | 方法B (行) | 方法B 代码 |
+|---|-----------|-----------|-------|-----------|----------|
+| 1 | L{XX} | `if (claimId == null)` | 🟢等价 | L{XX} | `if (claimId == null)` |
+| 2 | L{XX} | `claim.setStatus(1)` | 🟡语义差异 | L{XX} | `claim.setStatus(StatusEnum.DRAFT.getCode())` |
+| 3 | L{XX}-L{XX} | `// 金额计算逻辑` | 🔴逻辑差异 | — | (无对应) |
+| 4 | — | (无对应) | 🔵仅B有 | L{XX} | `validateBudget(claim)` |
+
+等价性标记: 🟢完全等价 🟡语义差异(但结果相同) 🔴逻辑差异(结果不同) 🔵仅一方有
+
+### 关键差异详解
+
+#### 差异1: 第{N}语句 — {差异简述}
+- **方法A** (L{XX}): `{代码}`
+- **方法B** (L{XX}): `{代码}`
+- **差异类型**: 🔴 逻辑差异 / 🟡 语义差异
+- **影响分析**: {此差异对业务结果的影响}
+- **建议**: {是否需要同步修复}
+
+### 方法A特有逻辑
+| 行号 | 逻辑描述 | 重要性 | 建议 |
+|------|---------|-------|------|
+| L{XX} | {描述} | 🔴高 / 🟡中 / 🟢低 | {建议} |
+
+### 方法B特有逻辑
+| 行号 | 逻辑描述 | 重要性 | 建议 |
+|------|---------|-------|------|
+| L{XX} | {描述} | {重要性} | {建议} |
+
+### 对比结论
+- **相似度**: {N}%
+- **逻辑等价语句**: {N}/{总语句数}
+- **潜在 Bug**: {N} 处（需要立即处理）
+- **建议同步**: {N} 处（建议参考对方实现）
+- **综合评估**: {两个方法的总体差异评价}
+````
+
+---
+
 ## ⚠️ 强制约束
 
 ### 对比时必须遵守
@@ -333,10 +685,66 @@ yldc-caiwugongxiangpingtai-fsscYR-master/src/com/ibm/gbs/efinance/business/ylSer
 
 ---
 
+## 🗂️ 资源文件管理规范
+
+### 资源目录说明
+
+以下目录是 skill 的配套资源，随 skill 一起维护和更新：
+
+| 目录 | 说明 | 维护方式 |
+|------|------|--------|
+| `references/` | 老代码结构、新代码结构等参考文档 | 📝 可随 skill 升级一起更新 |
+| `templates/` | 输出报告模板、代码模板 | 📝 可随 skill 升级一起更新 |
+| `scripts/` | 辅助脚本（如批量对比脚本） | 📝 可随 skill 升级一起更新 |
+| `assets/` | 图片、附件等静态资源 | 📝 可随 skill 升级一起更新 |
+
+### 使用场景区分
+
+| 场景 | 对资源目录的操作权限 |
+|------|--------------------|
+| **更新/维护 skill 本身** | ✅ 可以读写、修改、新增、删除资源文件 |
+| **执行分析任务**（用户调用 skill 分析代码时） | ⛔ 只读，禁止向资源目录写入任何内容 |
+
+### 执行任务时的输出规则
+
+当用户调用 `--compare`、`--file-migrate`、`--logic-diff` 等命令执行分析任务时：
+
+1. **只读资源目录**: references/、templates/、scripts/、assets/ 仅作为参考读取，不写入
+2. **输出隔离**: 所有生成的报告、分析结果，写入到 `output/` 目录或用户指定的目标路径
+3. **路径校验**: 文件写入操作前，确认目标路径不是上述资源目录
+
+### 允许写入的目录（执行任务时）
+
+- `output/` — 生成的对比报告、分析结果
+- 用户项目代码目录（用户明确指定时）
+
+---
+
 ## 📁 参考资料
 
+### references/
 - **老代码结构**: [references/old-code-structure.md](references/old-code-structure.md)
 - **新代码结构**: [references/new-code-structure.md](references/new-code-structure.md)
+
+### templates/
+- **对比报告模板** (--compare): [templates/compare-report.md](templates/compare-report.md)
+- **Bug检查报告模板** (--bug-check): [templates/bug-check-report.md](templates/bug-check-report.md)
+- **文件迁移分析模板** (--file-migrate): [templates/file-migrate-report.md](templates/file-migrate-report.md)
+- **方法迁移分析模板** (--method-migrate): [templates/method-migrate-report.md](templates/method-migrate-report.md)
+- **逻辑对比报告模板** (--logic-diff): [templates/logic-diff-report.md](templates/logic-diff-report.md)
+- **方法对比报告模板** (--method-diff): [templates/method-diff-report.md](templates/method-diff-report.md)
+
+### scripts/
+- **老代码文件清单**: [scripts/batch-list-old-files.sh](scripts/batch-list-old-files.sh)
+- **新代码文件清单**: [scripts/batch-list-new-files.sh](scripts/batch-list-new-files.sh)
+- **快速搜索**: [scripts/quick-search.sh](scripts/quick-search.sh)
+
+### assets/
+- **方法映射表**: [assets/method-mapping.md](assets/method-mapping.md) — 老→新方法/文件映射规则
+- **模板模块映射**: [assets/template-module-mapping.md](assets/template-module-mapping.md) — T编号→模块归属
+- **状态标记图例**: [assets/status-markers.md](assets/status-markers.md) — 所有输出标记语义定义
+
+### 外部参考
 - **迁移工具**: `transform-claim` skill（执行实际迁移）
 - **项目规范**: `/ai-spec/rules/agents.md`
 - **老代码路径**: `yldc-caiwugongxiangpingtai-fsscYR-master/src/com/ibm/gbs/efinance/business/ylService/claim/`

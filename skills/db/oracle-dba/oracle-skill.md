@@ -620,7 +620,237 @@ Java应用可通过以下方式设置MODULE/ACTION（推荐）:
   DBMS_APPLICATION_INFO.SET_MODULE('fssc-claim-service', 'deleteExpiredClaims');
 ```
 
+### 7. 资源消耗SQL定位（Resource Hog Finder）
+
+> 多维度快速定位当前系统中资源消耗最大的SQL和会话，适用于性能抖动、CPU飙高、I/O打满等紧急场景。
+
+#### 活跃会话资源消耗全景
+```sql
+-- 当前正在消耗资源的会话 + SQL（ON CPU = 正在计算, 其他event = 等待资源）
+SELECT 
+    s.sid, 
+    s.serial#, 
+    s.username, 
+    s.status, 
+    s.event,
+    s.seconds_in_wait, 
+    q.sql_id, 
+    SUBSTR(q.sql_text, 1, 80) sql_preview,
+    q.executions, 
+    ROUND(q.elapsed_time/1000000, 2) elapsed_sec,
+    ROUND(q.cpu_time/1000000, 2) cpu_sec,
+    s.program,
+    s.module,
+    s.machine
+FROM v$session s
+JOIN v$sql q ON s.sql_id = q.sql_id AND s.sql_child_number = q.child_number
+WHERE s.status = 'ACTIVE'
+  AND s.type != 'BACKGROUND'
+  AND s.username IS NOT NULL
+ORDER BY q.cpu_time DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### TOP SQL by CPU（累计CPU消耗最高）
+```sql
+SELECT 
+    sql_id,
+    executions,
+    ROUND(cpu_time/1000000, 2) cpu_sec,
+    ROUND(elapsed_time/1000000, 2) elapsed_sec,
+    buffer_gets,
+    disk_reads,
+    rows_processed,
+    ROUND(cpu_time/NULLIF(executions,0)/1000, 2) ms_per_exec,
+    parsing_schema_name,
+    module
+FROM v$sql
+WHERE executions > 0
+  AND cpu_time > 0
+  AND parsing_schema_name NOT IN ('SYS', 'SYSTEM')
+ORDER BY cpu_time DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### TOP SQL by Elapsed Time（总耗时最长）
+```sql
+-- CPU_RATIO% = CPU占比, 低于50%说明等待时间多
+SELECT 
+    sql_id,
+    executions,
+    ROUND(elapsed_time/1000000, 2) elapsed_sec,
+    ROUND(cpu_time/1000000, 2) cpu_sec,
+    ROUND(cpu_time/NULLIF(elapsed_time,0)*100, 1) || '%' cpu_ratio,
+    ROUND(elapsed_time/NULLIF(executions,0)/1000, 2) ms_per_exec,
+    buffer_gets,
+    disk_reads,
+    parsing_schema_name
+FROM v$sql
+WHERE executions > 0
+  AND elapsed_time > 0
+  AND parsing_schema_name NOT IN ('SYS', 'SYSTEM')
+ORDER BY elapsed_time DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### TOP SQL by 内存消耗（Shared Pool占用）
+```sql
+-- sharable_mem 为游标在共享池中占用的内存, version_count高可能是绑定变量问题
+SELECT 
+    sql_id,
+    ROUND(sharable_mem/1024/1024, 2) sharable_mb,
+    ROUND(persistent_mem/1024/1024, 2) persistent_mb,
+    ROUND(runtime_mem/1024/1024, 2) runtime_mb,
+    version_count,
+    loaded_versions,
+    executions,
+    parsing_schema_name,
+    module
+FROM v$sql
+WHERE sharable_mem > 0
+  AND parsing_schema_name NOT IN ('SYS', 'SYSTEM')
+ORDER BY sharable_mem DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### TOP SQL by I/O（物理读写最多）
+```sql
+-- 物理读高 = 数据没命中Buffer Cache, 检查索引或增大SGA
+SELECT 
+    sql_id,
+    executions,
+    disk_reads,
+    buffer_gets,
+    ROUND(disk_reads/NULLIF(executions,0)) reads_per_exec,
+    CASE WHEN buffer_gets > 0 
+         THEN ROUND((1 - disk_reads/buffer_gets)*100, 1) || '%'
+         ELSE 'N/A' END hit_ratio,
+    ROUND(cpu_time/1000000, 2) cpu_sec,
+    ROUND(elapsed_time/1000000, 2) elapsed_sec,
+    parsing_schema_name
+FROM v$sql
+WHERE executions > 0
+  AND disk_reads > 0
+  AND parsing_schema_name NOT IN ('SYS', 'SYSTEM')
+ORDER BY disk_reads DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### 会话级 PGA/Temp 资源消耗
+```sql
+-- PGA高=大排序/Hash Join; Temp高=磁盘排序
+SELECT 
+    s.sid,
+    s.serial#,
+    s.username,
+    s.program,
+    s.module,
+    s.machine,
+    s.status,
+    s.sql_id,
+    ROUND(p.pga_used_mem/1024/1024, 2) pga_mb,
+    ROUND(NVL(t.blocks * (SELECT value FROM v$parameter WHERE name = 'db_block_size') / 1024 / 1024, 0), 2) temp_mb
+FROM v$session s
+JOIN v$process p ON s.paddr = p.addr
+LEFT JOIN (
+    SELECT session_addr, SUM(blocks) blocks
+    FROM v$tempseg_usage
+    GROUP BY session_addr
+) t ON s.saddr = t.session_addr
+WHERE s.username IS NOT NULL
+  AND s.type != 'BACKGROUND'
+ORDER BY p.pga_used_mem DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### ASH实时采样（最近30分钟高资源SQL）
+```sql
+-- 采样次数越多 = 该SQL占用活跃时间越长
+SELECT 
+    sql_id,
+    COUNT(*) sample_count,
+    SUM(CASE WHEN session_state = 'ON CPU' THEN 1 ELSE 0 END) on_cpu_count,
+    SUM(CASE WHEN session_state = 'WAITING' THEN 1 ELSE 0 END) wait_count,
+    ROUND(COUNT(*) * 100 / (SELECT COUNT(*) FROM v$active_session_history
+      WHERE sample_time > SYSDATE - INTERVAL '30' MINUTE AND sql_id IS NOT NULL), 1) || '%' pct_db_time,
+    MAX(module) module
+FROM v$active_session_history
+WHERE sample_time > SYSDATE - INTERVAL '30' MINUTE
+  AND sql_id IS NOT NULL
+GROUP BY sql_id
+ORDER BY sample_count DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### 全表扫描大表定位
+```sql
+-- 大表全表扫描 = 消耗大量I/O和CPU, 应优先添加索引
+SELECT DISTINCT
+    s.sql_id,
+    p.object_owner,
+    p.object_name,
+    t.num_rows,
+    ROUND(t.blocks * (SELECT value FROM v$parameter WHERE name = 'db_block_size') / 1024 / 1024, 2) table_size_mb,
+    s.executions,
+    ROUND(s.elapsed_time/1000000, 2) elapsed_sec,
+    s.disk_reads,
+    s.buffer_gets,
+    s.module
+FROM v$sql_plan p
+JOIN v$sql s ON p.sql_id = s.sql_id AND p.child_number = s.child_number
+JOIN dba_tables t ON p.object_owner = t.owner AND p.object_name = t.table_name
+WHERE p.operation = 'TABLE ACCESS'
+  AND p.options = 'FULL'
+  AND t.num_rows > 100000
+  AND p.object_owner NOT IN ('SYS', 'SYSTEM')
+ORDER BY t.num_rows DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+#### 资源消耗趋势（按小时统计）
+```sql
+-- 最近24小时, 识别资源消耗高峰时段
+SELECT 
+    TO_CHAR(TRUNC(sample_time, 'HH'), 'MM-DD HH24:MI') hour_slot,
+    COUNT(*) active_samples,
+    SUM(CASE WHEN session_state = 'ON CPU' THEN 1 ELSE 0 END) cpu_samples,
+    SUM(CASE WHEN wait_class = 'User I/O' THEN 1 ELSE 0 END) io_samples,
+    SUM(CASE WHEN wait_class = 'Concurrency' THEN 1 ELSE 0 END) lock_samples,
+    COUNT(DISTINCT sql_id) unique_sql_count,
+    COUNT(DISTINCT session_id) unique_session_count
+FROM v$active_session_history
+WHERE sample_time > SYSDATE - 1
+GROUP BY TRUNC(sample_time, 'HH')
+ORDER BY TRUNC(sample_time, 'HH') DESC;
+```
+
 ## 工作流程
+
+### 资源消耗紧急诊断流程
+
+```
+1. 【发现资源异常】
+   - CPU飙高 / I/O打满 / 内存不足 / 系统变慢
+   
+2. 【快速定位】
+   ├─ 执行 scripts/resource_hog_sql.sql
+   ├─ 第1步: 看活跃会话全景 → 谁在消耗资源？
+   ├─ 第2~5步: 分维度看TOP SQL → CPU/耗时/内存/IO 哪个高？
+   └─ 第6步: 看会话级PGA/Temp → 是否有大排序大事务？
+   
+3. 【深入分析】
+   ├─ 输入SQL_ID查看完整SQL和执行计划
+   ├─ 对比ASH采样数据确认持续性
+   ├─ 检查全表扫描大表
+   └─ 查看24小时趋势确认是否周期性
+   
+4. 【优化处理】
+   ├─ CPU高: SQL改写/加索引
+   ├─ I/O高: 加索引/增大Buffer Cache
+   ├─ 内存高: 检查绑定变量/游标泄漏
+   ├─ PGA/Temp高: 优化排序/增大PGA
+   └─ 并行过度: 限制DOP
+```
 
 ### 性能问题诊断流程
 
@@ -709,6 +939,7 @@ python scripts/awr_analyzer.py --db prod --hours 2
 | `awr_analyzer.py` | AWR报告解析（Python） | 自动化分析 |
 | `sql_tuning.sql` | SQL调优助手 | SQL优化 |
 | `dml_trace.sql` | DML变更溯源 | DELETE/UPDATE追踪 |
+| `resource_hog_sql.sql` | 资源消耗SQL定位 | CPU飙高/IO打满/性能抖动 |
 
 ## 最佳实践
 
@@ -942,6 +1173,14 @@ A:
   - 服务来源识别（MODULE/PROGRAM/MACHINE）
   - ASH/AWR历史追踪
   - 审计追踪与Flashback查询
+- 2026-03-10: 新增资源消耗SQL定位模块
+  - 活跃会话资源消耗全景（CPU + 等待事件 + SQL）
+  - 多维度TOP SQL分析（CPU/Elapsed/内存/I/O）
+  - 会话级PGA/Temp/Undo资源消耗
+  - 并行查询资源消耗监控
+  - ASH实时采样高资源SQL
+  - 全表扫描大表定位
+  - 24小时资源消耗趋势分析
 
 ---
 
@@ -960,6 +1199,13 @@ A:
 - "谁删了这张表的数据"
 - "哪个服务执行了这条DELETE"
 - "最近谁UPDATE了这张表"
+- "哪个SQL占用CPU最高"
+- "定位资源消耗最大的SQL"
+- "数据库CPU飙高了"
+- "IO打满了怎么排查"
+- "系统突然变慢了"
+- "谁占用了最多内存"
+- "PGA用了多少"
 
 AI应该：
 1. 识别用户问题类型（性能/锁/空间等）
