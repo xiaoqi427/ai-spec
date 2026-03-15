@@ -1,0 +1,15 @@
+# FinMind 智投系统 Python 依赖
+# 安装: pip install -r requirements.txt
+
+# 数据源 — A股 (必装)
+akshare>=1.12.0
+
+# 数据源 — 美股/港股 (必装)
+yfinance>=0.2.30
+
+# 数据处理 (必装)
+pandas>=2.0.0
+
+# 可选: 数据可视化
+# matplotlib>=3.8.0
+# mplfinance>=0.12.0

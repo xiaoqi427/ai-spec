@@ -55,7 +55,7 @@ log_variable_name: log
 log_style: |
   // 优先使用占位符而非字符串拼接
   log.info("用户ID: {}, 操作: {}", userId, operation);
-
+  
   // 错误日志带异常堆栈
   log.error("处理失败: {}", message, exception);
 ```
@@ -115,7 +115,7 @@ comment_detail_level: 适中
 ```java
 /**
  * 业务方法说明
- *
+ * 
  * @param xxx 参数说明
  * @return 返回值说明
  * @throws XxxException 异常说明
@@ -130,8 +130,8 @@ comment_detail_level: 适中
 # 异常处理方式
 exception_handling: |
   // 优先使用自定义业务异常
-  throw new BusinessException(ErrorCode.INVALID_PARAM, "参数不合法");
-
+  throw new I18nException(ErrorCode.INVALID_PARAM, "参数不合法");
+  
   // Service 层抛出异常,Controller 层统一处理
   // 不要在 Service 层 catch 后返回 null
 ```
@@ -245,11 +245,11 @@ prefer_optional: true
 # 提交信息格式
 commit_message_format: |
   <type>(<scope>): <subject>
-
+  
   <body>
-
+  
   <footer>
-
+  
   # type: feat/fix/docs/style/refactor/test/chore
   # 示例: feat(claim): 新增资产报账单导出功能
 
@@ -336,7 +336,7 @@ proactive_code_review: true
 * 不要遗漏代码
 * 代码先迁移过来，再用新框架看情况是否需要重构，方法尽量和之前保持一致
 
-## 代码规范
+## Rules 约束
 * 不能对传入的变量重新赋值，对象set可以
 * mybatis plus就能实现的不要创建SQL
 * 迁移老代码到新代码，在新代码中要写好老代码到行数
@@ -346,3 +346,6 @@ proactive_code_review: true
 * 如果在[fssc-config-service]模块中的mapper,就需要找API有没有可用的，没有可以的，就需要创建API
 * 尽量import导入包，不要写在代码过程里面
 * 能往上抛异常的往上抛，框架处理，尽量不捕获异常，业务需要可以捕获异常
+* 迁移代码标注上老代码方法和行数
+* 参数dto不要放在逻辑文件中，单独新建类
+* 有些地方该加debug日志的时候加上debug日志，方便开发环境调试
