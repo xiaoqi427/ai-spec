@@ -1,0 +1,19 @@
+# Coding 平台认证配置模板
+# 复制此文件为 coding-auth.yaml 并填写实际信息
+# 注意: coding-auth.yaml 应加入 .gitignore
+
+# Coding 平台地址
+coding_url: https://yldc.coding.yili.com
+
+# 认证方式1: 账号密码 (兜底方案)
+username: your_username
+password: your_password
+
+# 认证方式2: Cookie 文件路径 (降级方案)
+# 从浏览器导出 Cookie 后保存为 JSON 文件
+# 使用 browser-use cookies export coding-cookies.json 导出
+cookie_file: config/coding-cookies.json
+
+# Chrome Profile 名称 (优先方案)
+# 使用 browser-use profile list 查看可用 Profile
+chrome_profile: Default
