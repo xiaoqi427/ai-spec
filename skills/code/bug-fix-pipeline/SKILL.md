@@ -24,10 +24,18 @@ bug-fix-pipeline
 ## 外部依赖
 
 
-| 外部 Skill               | 安装命令                                                                | 说明                                                        |
-| ------------------------ | ----------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `browser-use`            | `npx openskills add browser-use/browser-use@browser-use`                | 浏览器自动化, 安装位置:`.agents/skills/browser-use/`        |
-| `playwright-e2e-testing` | `npx openskills add bobmatnyc/claude-mpm-skills@playwright-e2e-testing` | E2E 测试, 安装位置:`.agents/skills/playwright-e2e-testing/` |
+| 外部 Skill               | 安装命令                                                                | 说明                                                            |
+| ------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `agent-browser`          | 按项目环境单独安装或配置                                                | `bug-fix-pipeline` 默认首选的浏览器验证能力，用于复现、截图和修复回归 |
+| `browser-use`            | `npx openskills add browser-use/browser-use@browser-use`                | 需要复用本机 Chrome Profile、Cookie、登录态时作为降级方案       |
+| `playwright-e2e-testing` | `npx openskills add bobmatnyc/claude-mpm-skills@playwright-e2e-testing` | 需要稳定回归脚本、断言和可重复执行测试时使用                    |
+
+说明:
+
+- `bug-fix-pipeline` 中凡是“打开 SIT 页面、按步骤复现、截图存证、验证修复”这类浏览器任务，默认优先使用 `agent-browser`
+- 只有在必须复用登录态、现有浏览器 Profile、Cookie 或沿用现成 CLI 脚本时，才退回 `browser-use`
+- 需要沉淀为正式可复跑回归脚本时，再使用 `playwright-e2e-testing`
+- 上述能力都属于联调/冒烟/E2E 范畴，不属于单元测试依赖
 
 内部依赖 (无需安装):
 

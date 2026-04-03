@@ -1,7 +1,7 @@
 ---
 name: sit-smoke-test
-description: SIT 环境自动化做单验证，支持报账单冒烟测试、场景测试、页面截图。基于 browser-use 和 playwright-e2e-testing 实现。可独立使用，也可被 bug-fix-pipeline 调用。当用户需要在 SIT 环境验证报账单功能、做冒烟测试、验证 Bug 修复效果时使用。
-allowed-tools: Bash(browser-use:*), Bash(npx:playwright)
+description: SIT 环境自动化做单验证，支持报账单冒烟测试、场景测试、页面截图。基于 agent-browser、browser-use 和 playwright-e2e-testing 实现。默认优先使用 agent-browser，可独立使用，也可被 bug-fix-pipeline 调用。当用户需要在 SIT 环境验证报账单功能、做冒烟测试、验证 Bug 修复效果时使用。
+allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(browser-use:*), Bash(npx:playwright)
 ---
 # SIT Smoke Test (SIT 环境自动化做单验证)
 @author: sevenxiao
@@ -21,14 +21,22 @@ allowed-tools: Bash(browser-use:*), Bash(npx:playwright)
 
 | 外部 Skill | 安装命令 | 说明 |
 |------------|----------|------|
-| `browser-use` | `npx openskills add browser-use/browser-use@browser-use` | 浏览器自动化 CLI, 安装位置: `.agents/skills/browser-use/` |
-| `playwright-e2e-testing` | `npx openskills add bobmatnyc/claude-mpm-skills@playwright-e2e-testing` | E2E 测试框架, 安装位置: `.agents/skills/playwright-e2e-testing/` |
+| `agent-browser` | 按项目环境单独安装或配置 | 默认首选。用于打开页面、复现步骤、截图取证和轻量交互验证 |
+| `browser-use` | `npx openskills add browser-use/browser-use@browser-use` | 需要复用 Chrome Profile、Cookie 和现有登录态时作为降级方案 |
+| `playwright-e2e-testing` | `npx openskills add bobmatnyc/claude-mpm-skills@playwright-e2e-testing` | 需要稳定断言、可重复执行脚本和正式回归时使用 |
 
 安装后执行:
 ```bash
 browser-use doctor           # 验证 browser-use
 npx playwright install       # 安装 Playwright 浏览器
 ```
+
+使用建议:
+
+- `sit-smoke-test` 被 `bug-fix-pipeline` 调用时，默认先走 `agent-browser`
+- 需要复用登录态、现有 Chrome Profile、Cookie 或既有 CLI 流程时，再退回 `browser-use`
+- 需要稳定回归、断言和可重复执行脚本时使用 `playwright-e2e-testing`
+- 上述能力都属于联调/冒烟/E2E 范畴，不属于单元测试依赖
 
 复用的已有 skill:
 - `front-end-skills` (`ai-spec/skills/code/front-end-skills/`) - 路由解析脚本和浏览器测试模式
@@ -69,9 +77,43 @@ npx playwright install       # 安装 Playwright 浏览器
 
 ---
 
-## 认证策略
+## 浏览器执行策略
 
 按优先级依次尝试:
+
+### 1. `agent-browser` 默认执行（优先）
+
+适用场景:
+
+- `bug-fix-pipeline` 中的 SIT 页面打开、Bug 复现、关键按钮点击、截图存证
+- 不依赖本机真实 Chrome Profile 的标准验证流程
+
+典型流程:
+
+```bash
+agent-browser open "http://pri-fssc-web-sit.digitalyili.com/#/claim/T044"
+agent-browser wait --load networkidle
+agent-browser snapshot -i
+agent-browser screenshot sit-smoke-T044.png
+```
+
+### 2. `browser-use` 复用登录态（降级）
+
+适用场景:
+
+- 必须复用本机 Chrome Profile、Cookie、现有登录态
+- 已有脚本、账号或认证资料是基于 `browser-use` 维护的
+
+### 3. Playwright 脚本回归
+
+适用场景:
+
+- 需要把临时验证沉淀成正式回归脚本
+- 需要稳定断言、报告和可重复执行能力
+
+## 认证策略
+
+当需要复用真实浏览器登录态时，按优先级依次尝试:
 
 ### 1. Chrome Profile 复用（优先）
 
@@ -401,12 +443,13 @@ npx playwright show-report
 
 ## 强制约束
 
-1. **认证优先级**: Chrome Profile → Cookie → 账号密码，严格按顺序
-2. **截图存证**: 每个关键步骤必须截图
-3. **不猜测路由**: 路由从代码或路由解析脚本推导，不要猜
-4. **超时处理**: 页面加载超时默认 60 秒
-5. **SIT 环境专用**: 不要在生产环境执行测试
-6. **测试数据**: 使用测试账号和测试数据，不要影响正式数据
+1. **执行优先级**: `agent-browser` → `browser-use` → `playwright-e2e-testing`
+2. **认证优先级**: 在进入 `browser-use` 认证分支后，按 Chrome Profile → Cookie → 账号密码执行
+3. **截图存证**: 每个关键步骤必须截图
+4. **不猜测路由**: 路由从代码或路由解析脚本推导，不要猜
+5. **超时处理**: 页面加载超时默认 60 秒
+6. **SIT 环境专用**: 不要在生产环境执行测试
+7. **测试数据**: 使用测试账号和测试数据，不要影响正式数据
 
 ## 参考
 
