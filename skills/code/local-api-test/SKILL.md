@@ -1,39 +1,184 @@
 ---
 name: local-api-test
-description: 本地启动 Spring Boot 服务后，用 curl 测试后端 API 接口。Bug 修复后、代码提交前，先本地验证接口正确性。当用户需要在本地环境用 curl 测试后端接口时使用。
-allowed-tools: Bash(curl:*, mvn:*, java:*), AskUser
+description: 本地启动 Spring Boot 服务后，自动读取前端 page/service、后端 Controller、DTO schema 和 mock 信息，推导接口并直接用 curl 执行本地接口测试。适用于 Bug 修复后、提交前、本地联调时做真实接口验证。
+allowed-tools: Bash(curl:*, mvn:*, java:*, python3:*, rg:*, sed:*, cat:*, jq:*, find:*, ls:*, lsof:*, ps:*), AskUser
 ---
 # Local API Test (本地接口测试)
 @author: sevenxiao
 
 ## 概述
 
-代码修复后、提交前，**本地启动服务** + **curl 测试接口**，验证修复有效。
+这个 skill 不再只是“告诉用户怎么 curl”。
 
-**流程**: 编译 → 本地启动服务 → curl 登录获取 Cookie → curl 调用目标接口 → 验证响应
+默认目标是:
 
-## 外部依赖
+1. 自动定位目标接口
+2. 自动确认本地服务和端口
+3. 自动登录拿 Cookie
+4. 自动构造安全请求体
+5. 自动执行 curl
+6. 输出可复用的请求和结果
 
-无外部依赖，仅使用 curl 命令行。
+核心新增能力:
+
+- 支持从 `fssc-web` 的 `index.vue / service.js` 反推接口
+- 支持从 `Setaria.getHttp().<domain>` 自动映射到本地服务
+- 支持向后追到后端 `Controller`
+- 支持读取前端 `json-schema` 生成最小请求体
+- 参数不够时，支持继续参考 `mock` 或浏览器真实请求
+
+---
+
+## 自动执行原则
+
+使用此 skill 时，**默认自己执行**，不要只停在命令建议。
+
+除以下场景外，必须直接跑完整流程:
+
+- 目标接口只有写操作，且会改真实本地数据
+- 关键参数完全无法从代码、schema、mock、页面入口推断
+- 本地服务启动方式存在歧义，必须让用户确认
+
+执行优先级:
+
+1. **安全查询接口优先**
+2. **能自动推断就自动推断**
+3. **能自动执行就自动执行**
+4. **只在必要时才询问用户**
+
+---
+
+## 可集成能力
+
+### 1. `front-end-skills`
+
+用途:
+
+- 定位页面入口
+- 定位 `index.vue / service.js / route`
+- 必要时用路由脚本确认页面 URL
+
+复用文件:
+
+- `ai-spec/skills/code/front-end-skills/SKILL.md`
+- `ai-spec/skills/code/front-end-skills/scripts/route-open.py`
+
+### 2. `sit-smoke-test`
+
+用途:
+
+- 当代码里推不出完整参数时，用浏览器真实打开页面
+- 观察页面行为和真实请求
+- 作为“抓真实请求再回放为 curl”的兜底策略
+
+复用文件:
+
+- `ai-spec/skills/code/sit-smoke-test/SKILL.md`
+
+> `local-api-test` 仍以本地接口为主。只有代码推断不够时，才借用浏览器能力。
 
 ---
 
 ## 使用方式
 
 ```bash
-# 测试 config 服务的某个接口
+# 直接测后端接口
 /skill local-api-test config "/accountteam/getList"
+/skill local-api-test claim-base "/myReimbursement/AllClaimSavedList"
 
-# 测试 claim-base 服务
-/skill local-api-test claim-base "/T001/loadClaim?claimId=123"
+# 从前端页面反推主接口并执行
+/skill local-api-test from-frontend fssc-web/src/page/myInfo/myDraft/index.vue
 
-# 自动根据修改文件推断服务和接口
+# 从 service.js 反推指定导出函数并执行
+/skill local-api-test from-service fssc-web/src/page/myInfo/myDraft/service.js --api apiTableData
+
+# 自动根据修改文件判断
 /skill local-api-test auto
+
+# 代码推不出完整参数时，进入抓包回放模式
+/skill local-api-test capture-and-replay fssc-web/src/page/claim/fund/T044/index.vue
 ```
 
 ---
 
-## 服务端口映射表
+## 内置脚本
+
+### `scripts/infer_frontend_api.py`
+
+路径:
+
+```bash
+ai-spec/skills/code/local-api-test/scripts/infer_frontend_api.py
+```
+
+作用:
+
+- 读取页面或 `service.js`
+- 提取 `export const apiXxx`
+- 识别 `Setaria.getHttp().<domain>`
+- 映射前端 baseURL
+- 追溯本地后端 `Controller`
+- 提取请求 DTO 类型
+- 在 `fssc-web/src/json-schema/*.json` 中定位 schema
+- 输出最小请求体、参数示例和 curl 模板
+
+示例:
+
+```bash
+python3 ai-spec/skills/code/local-api-test/scripts/infer_frontend_api.py \
+  fssc-web/src/page/myInfo/myDraft/index.vue --primary-only
+
+python3 ai-spec/skills/code/local-api-test/scripts/infer_frontend_api.py \
+  fssc-web/src/page/myInfo/myDraft/service.js --api-name apiTableData
+```
+
+---
+
+## 智能推导顺序
+
+当用户给页面、模块、路由或“修这个前端对应接口”这类请求时，按下面顺序推导:
+
+1. **页面真实调用优先**
+   - 先看 `index.vue`
+   - 找 `request / load / save / submit / export` 方法里调用了哪个 API
+
+2. **`service.js` 定义优先**
+   - 找 `export const apiXxx = (...) => request.post(...)`
+   - 找 `Setaria.getHttp().<domain>`
+
+3. **后端 Controller 确认**
+   - 找 `@RequestMapping`
+   - 找 `@PostMapping / @GetMapping`
+   - 找 `@RequestBody` 参数类型
+
+4. **DTO schema 补齐**
+   - 在 `fssc-web/src/json-schema/*.json` 中找对应 DTO
+   - 对分页接口自动构造 `pageNum/pageSize/params`
+
+5. **mock 和页面默认值兜底**
+   - 找 `fssc-web/mock/**`
+   - 找页面 `conditionData`、`created`、默认参数组装逻辑
+
+6. **浏览器抓真实请求兜底**
+   - 代码仍然不够时，再联动 `sit-smoke-test`
+
+### 推导冲突时的优先级
+
+如果页面字段和 DTO 字段不一致，优先级如下:
+
+1. 页面实际组参逻辑
+2. service.js 调用方式
+3. 后端 Controller/DTO
+4. json-schema
+5. mock
+
+不要只拿 schema 硬猜参数。
+
+---
+
+## 服务映射
+
+### 本地服务端口映射
 
 | 模块 | 启动类 | 端口 | context-path |
 |------|--------|------|-------------|
@@ -54,7 +199,27 @@ allowed-tools: Bash(curl:*, mvn:*, java:*), AskUser
 | `rule` | `ReApplication` | 9013 | / |
 | `gateway` | `GatewayApplication` | 80 | / |
 
-> **注意**: 本地测试不走网关，直接访问目标服务端口。
+### 前端 domain 到本地模块映射
+
+| 前端 domain | baseURL | 本地模块 |
+|------------|---------|---------|
+| `config` | `/api/config` | `config` |
+| `claimBase` | `/api/claim-base` | `claim-base` |
+| `claim` | `/api/claim` | `claim-base` |
+| `tr` | `/api/claim/tr` | `claim-tr` |
+| `ptp` | `/api/claim/ptp` | `claim-ptp` |
+| `rtr` | `/api/claim/rtr` | `claim-rtr` |
+| `otc` | `/api/claim/otc` | `claim-otc` |
+| `eer` | `/api/claim/eer` | `claim-eer` |
+| `fa` | `/api/claim/fa` | `claim-fa` |
+| `fund` | `/api/fund` | `fund` |
+| `invoice` | `/api/invoice` | `invoice` |
+| `image` | `/api/image` | `image` |
+| `aam` | `/api/aam` | `aam` |
+| `bpm` | `/api/bpm` | `bpm` |
+| `re` | `/api/re` | `rule` |
+
+> `pi / cac / bi / voucher / base` 这几类如果脚本没法映射到本地模块，要在结果里明确标记“需人工确认”。
 
 ---
 
@@ -75,105 +240,94 @@ allowed-tools: Bash(curl:*, mvn:*, java:*), AskUser
 
 ## 认证机制
 
-### Cookie-based Token 认证
+系统使用 Cookie 传递认证信息，流程如下:
 
-系统使用 Cookie 传递认证信息，流程如下：
+1. `POST /sys/login`
+2. 保存返回 Cookie 到文件
+3. 后续接口全部复用同一个 Cookie 文件
 
-```
-1. POST /sys/login → 返回 Set-Cookie (Authorization, auth_userId, auth_userName, ...)
-2. 后续请求带上这些 Cookie → 服务端从 Cookie 提取 Token → Redis 校验
-```
+Cookie 关键字段:
 
-### Cookie 名称
-
-| Cookie | 说明 |
-|--------|------|
-| `Authorization` | 认证令牌 (UUID) |
-| `auth_userId` | 用户 ID |
-| `auth_userName` | 用户名 |
-| `auth_groupId` | 用户组 ID |
-| `auth_operatingSystem` | 操作系统标识 |
+- `Authorization`
+- `auth_userId`
+- `auth_userName`
+- `auth_groupId`
+- `auth_operatingSystem`
 
 ---
 
-## 测试流程（4 步）
+## 标准执行流程
 
-### Step 1: 本地编译
+### Step 1: 定位目标接口
+
+按输入模式处理:
+
+- **直接模块 + path**: 直接用给定接口
+- **`from-frontend`**: 跑 `infer_frontend_api.py`，默认选页面主查询接口
+- **`from-service`**: 跑 `infer_frontend_api.py --api-name <api>`
+- **`auto`**: 先找最近修改的前端或后端文件，再推导接口
+- **`capture-and-replay`**: 先代码推导，不够再抓真实请求
+
+### Step 2: 本地编译
 
 ```bash
-# 编译目标模块
 cd /Users/xiaoqi/Documents/work/yili/<服务目录>
 mvn compile -pl <web模块> -am -q
 ```
 
-**编译失败** → 停止，先修复编译问题。
+编译失败就停止，先修复。
 
----
+### Step 3: 本地启动服务
 
-### Step 2: 本地启动服务
-
-**方式一**: Maven 启动（推荐，后台运行）
+优先复用用户已经启动的服务。未启动时自动启动。
 
 ```bash
-# config 服务示例
+# config 服务
 cd /Users/xiaoqi/Documents/work/yili/fssc-config-service
 mvn spring-boot:run -pl fssc-config-web -Dspring-boot.run.profiles=local &
 
-# claim-base 服务示例
+# claim-base 服务
 cd /Users/xiaoqi/Documents/work/yili/fssc-claim-service
 mvn spring-boot:run -pl claim-base/claim-base-web -Dspring-boot.run.profiles=local &
 ```
 
-**方式二**: 如果用户已经在 IDE 中启动，跳过此步骤，直接询问用户
+健康检查:
 
-```
-⚠️ 请确认服务是否已在本地启动？
-- 如果已在 IntelliJ IDEA 中启动，请告知端口号
-- 如果未启动，我将通过 Maven 启动
-```
-
-**健康检查**:
 ```bash
-# 检查服务是否已启动
 curl -s http://127.0.0.1:<端口>/actuator/health 2>/dev/null || echo "服务未启动"
 ```
 
----
-
-### Step 3: 登录获取 Cookie
+### Step 4: 登录获取 Cookie
 
 ```bash
-# 登录接口在 config 服务（端口 8080）
-# 保存 Cookie 到文件，后续请求复用
-curl -v -X POST http://127.0.0.1:8080/sys/login \
+curl -s -X POST http://127.0.0.1:8080/sys/login \
   -H "Content-Type: application/json" \
   -d '{"usernum":"fsscadmin","password":"2"}' \
-  -c /tmp/fssc-cookies.txt \
-  2>&1
-
-# 验证 Cookie 是否获取成功
-cat /tmp/fssc-cookies.txt
+  -c /tmp/fssc-cookies.txt | python3 -m json.tool
 ```
 
-**登录账号配置**: 读取 `config/local-test-auth.yaml`（见下方配置文件说明）
+### Step 5: 生成请求体
 
-**登录失败排查**:
-- 检查 config 服务是否启动在 8080
-- 检查 Redis 是否连通（Token 缓存依赖 Redis）
-- 检查账号密码是否正确
+规则:
 
----
+- `GET` 接口: 不带 body
+- `PageParam<ReqDto, XxxDto>`: 默认
 
-### Step 4: curl 测试目标接口
+```json
+{
+  "pageNum": 1,
+  "pageSize": 10,
+  "params": {}
+}
+```
+
+- 有 DTO schema: 输出 `params_example` 或对象示例
+- 有页面默认入参: 优先用页面真实入参
+- 有 route/query 依赖: 尽量从代码里取 `claimId / itemId / archiveId`
+
+### Step 6: 执行 curl
 
 ```bash
-# GET 请求示例
-curl -s -X GET "http://127.0.0.1:<端口>/<path>?<params>" \
-  -b /tmp/fssc-cookies.txt \
-  -H "Content-Type: application/json" \
-  | python3 -m json.tool
-
-# POST 请求示例
 curl -s -X POST "http://127.0.0.1:<端口>/<path>" \
   -b /tmp/fssc-cookies.txt \
   -H "Content-Type: application/json" \
@@ -181,99 +335,63 @@ curl -s -X POST "http://127.0.0.1:<端口>/<path>" \
   | python3 -m json.tool
 ```
 
-**验证结果**:
-1. HTTP 状态码: 200 → 成功，401 → 未认证，500 → 服务端错误
-2. 响应体: 检查 `code`/`success` 字段
-3. 业务数据: 检查关键字段值是否符合预期
+### Step 7: 校验结果
+
+至少检查:
+
+1. HTTP 状态码
+2. 认证是否通过
+3. `code / success / message`
+4. 关键业务字段
 
 ---
 
-## 常用测试场景模板
+## `capture-and-replay` 模式
 
-### 查询列表类接口
+当以下场景出现时进入该模式:
 
-```bash
-# 分页查询
-curl -s -X POST "http://127.0.0.1:<端口>/<path>/list" \
-  -b /tmp/fssc-cookies.txt \
-  -H "Content-Type: application/json" \
-  -d '{"pageNum":1,"pageSize":10}' \
-  | python3 -m json.tool
-```
+- 接口只有动态 query/body，代码里拿不到实参
+- 页面会在提交前做复杂数据转换
+- 需要完全仿造前端真实请求
 
-### 保存/更新类接口
+执行方式:
 
-```bash
-# 先查询获取数据
-curl -s -X GET "http://127.0.0.1:<端口>/<path>/get?id=<id>" \
-  -b /tmp/fssc-cookies.txt \
-  | python3 -m json.tool
+1. 用 `front-end-skills` 找页面入口
+2. 本地前端能跑就先开本地前端
+3. 参考 `sit-smoke-test` 的浏览器执行策略
+4. 打开页面，触发真实请求
+5. 记录 method、URL、payload、headers
+6. 再回放为本地 curl
 
-# 修改后保存
-curl -s -X POST "http://127.0.0.1:<端口>/<path>/save" \
-  -b /tmp/fssc-cookies.txt \
-  -H "Content-Type: application/json" \
-  -d '<modified-data>' \
-  | python3 -m json.tool
-
-# 再次查询验证
-curl -s -X GET "http://127.0.0.1:<端口>/<path>/get?id=<id>" \
-  -b /tmp/fssc-cookies.txt \
-  | python3 -m json.tool
-```
-
-### Bug 修复验证模板
-
-```bash
-# 1. 查询修改前状态（记录关键字段值）
-curl -s ... | python3 -m json.tool > /tmp/before.json
-
-# 2. 执行触发修复逻辑的操作
-curl -s -X POST ...
-
-# 3. 查询修改后状态（对比关键字段值）
-curl -s ... | python3 -m json.tool > /tmp/after.json
-
-# 4. 对比前后差异
-diff /tmp/before.json /tmp/after.json
-```
+> 这个模式的目标不是“测前端”，而是“抓真实请求模板，服务于本地接口测试”。
 
 ---
 
-## 根据修改文件推断测试接口
+## 输出格式
 
-当使用 `auto` 模式时，按以下规则推断：
+测试完成后统一输出:
 
-1. **找到修改的 Service/Business 类**
-2. **向上追溯 Controller**，找到对应的 API 路径
-3. **确定端口和请求方式**
-4. **构造测试请求**
+```markdown
+## 本地接口测试结果
 
-```
-修改文件 → 所在模块 → Controller 路径 → API URL → curl 命令
-```
-
-示例：
-```
-TProcAccountantteamUserServiceImpl.java
-  → fssc-config-service (端口 8080)
-  → AccountantTeamController
-  → POST /accountteam/updateTprocAccountantteamUser
-  → curl -s -X POST http://127.0.0.1:8080/accountteam/updateTprocAccountantteamUser ...
+- 服务: claim-base (端口 8081)
+- 推导来源: myDraft/index.vue -> myDraft/service.js -> MyReimbursementController
+- 接口: POST /myReimbursement/AllClaimSavedList
+- 登录状态: 成功
+- 请求体: {"pageNum":1,"pageSize":10,"params":{}}
+- curl: curl -s -X POST ...
+- 响应状态: 200
+- 响应摘要: code=0 success=true
+- 验证结果: 成功
 ```
 
----
+如果是从前端推导出的接口，必须额外输出:
 
-## Swagger 文档地址
-
-每个服务启动后可查看 Swagger UI 获取接口文档：
-
-```
-http://127.0.0.1:<端口>/swagger-ui/index.html
-http://127.0.0.1:<端口>/v3/api-docs
-```
-
-> 先打开 Swagger 了解接口参数格式，再构造 curl 请求。
+- 页面文件
+- service 文件
+- 选中的 API 导出函数
+- 对应 Controller
+- DTO/schema 来源
 
 ---
 
@@ -282,46 +400,24 @@ http://127.0.0.1:<端口>/v3/api-docs
 ### `config/local-test-auth.yaml`
 
 ```yaml
-# 本地测试登录账号（本地开发环境）
+workspace_root: "/Users/xiaoqi/Documents/work/yili"
 login_url: "http://127.0.0.1:8080/sys/login"
 username: "fsscadmin"
 password: "2"
-
-# Cookie 存储路径
 cookie_file: "/tmp/fssc-cookies.txt"
-```
-
----
-
-## 输出格式
-
-测试完成后输出：
-
-```markdown
-## 本地接口测试结果
-
-- **服务**: fssc-config-service (端口 8080)
-- **接口**: POST /accountteam/updateTprocAccountantteamUser
-- **登录状态**: ✅ 成功
-- **请求**:
-  ```bash
-  curl -s -X POST http://127.0.0.1:8080/accountteam/updateTprocAccountantteamUser ...
-  ```
-- **响应状态**: 200 OK
-- **响应体**:
-  ```json
-  { "code": 0, "success": true, "data": ... }
-  ```
-- **验证结果**: ✅ 修改时间和修改人已正确更新
+default_page_num: 1
+default_page_size: 10
+prefer_safe_read_api: true
 ```
 
 ---
 
 ## 强制约束
 
-1. **先启动再测试**: 确认服务已启动且健康，再发 curl 请求
-2. **必须登录**: 除了健康检查，所有业务接口都需要带 Cookie
-3. **保存 Cookie**: 登录后 Cookie 保存到文件，后续请求复用，不重复登录
-4. **结果可读**: curl 响应用 `python3 -m json.tool` 格式化输出
-5. **不修改数据**: 测试优先用查询接口，如需修改操作要告知用户
-6. **清理资源**: 测试完成后提醒用户关闭本地服务（如果是 Maven 启动的）
+1. **先定位再执行**: 不要猜接口，先确认来源
+2. **先健康检查再调用**: 服务没起来不能直接打业务接口
+3. **必须登录**: 除健康检查外，业务接口一律带 Cookie
+4. **优先跑读接口**: 查询、加载、列表优先
+5. **写接口先告知风险**: 会改数据时要明确说明
+6. **结果必须可复用**: 输出最终 curl 和最小请求体
+7. **不要只给建议**: 除非遇到阻塞，否则必须自己执行

@@ -1,6 +1,9 @@
 # 本地接口测试配置
 # 复制此文件为 local-test-auth.yaml 并填入实际值
 
+# 工作区根目录（可选）
+workspace_root: "/Users/xiaoqi/Documents/work/yili"
+
 # 登录接口（config 服务）
 login_url: "http://127.0.0.1:8080/sys/login"
 username: "fsscadmin"
@@ -8,3 +11,10 @@ password: "2"
 
 # Cookie 存储路径
 cookie_file: "/tmp/fssc-cookies.txt"
+
+# 智能测试默认分页（可选）
+default_page_num: 1
+default_page_size: 10
+
+# 默认优先读接口（可选）
+prefer_safe_read_api: true
