@@ -1,7 +1,7 @@
 ---
 name: coding-bug-ops
-description: 操作 Coding 平台 Bug 跟踪系统，读取 Bug 列表、详情、评论，添加评论和更新状态。基于 browser-use CLI 实现浏览器自动化操作。当用户需要查询 Coding Bug、读取 Bug 详情和评论、添加修复备注、更新 Bug 状态时使用。
-allowed-tools: Bash(browser-use:*)
+description: 操作 Coding 平台 Bug 跟踪系统，读取 Bug 列表、详情、评论，添加评论和更新状态。基于 browser-use 或 agent-browser CLI 实现浏览器自动化操作。当用户需要查询 Coding Bug、读取 Bug 详情和评论、添加修复备注、更新 Bug 状态时使用。
+allowed-tools: Bash(browser-use:*), Bash(agent-browser:*)
 ---
 # Coding Bug Ops (Coding 平台 Bug 操作)
 @author: sevenxiao
@@ -24,8 +24,40 @@ allowed-tools: Bash(browser-use:*)
 | 外部 Skill | 安装命令 | 说明 |
 |------------|----------|------|
 | `browser-use` | `npx openskills add browser-use/browser-use@browser-use` | 浏览器自动化 CLI, 安装位置: `.agents/skills/browser-use/` |
+| `agent-browser` | 由环境预装或单独安装 | 浏览器自动化 CLI，适合已安装 `agent-browser` 命令的环境 |
 
-安装后执行 `browser-use doctor` 验证环境。
+优先使用当前环境里实际可用的 CLI:
+
+1. 如果 `browser-use` 可用，优先用 `browser-use`
+2. 如果 `browser-use` 不可用但 `agent-browser` 可用，自动降级到 `agent-browser`
+3. 两者都不可用时，再提示用户安装或提供页面截图
+
+安装后执行 `browser-use doctor` 验证环境；若使用 `agent-browser`，至少先确认 `agent-browser open <url>` 和 `agent-browser snapshot -i` 可正常运行。
+
+## CLI 兼容规则
+
+下文步骤默认用 `browser-use` 写示例；执行时如果环境只有 `agent-browser`，按下面映射替换，不要因为示例命令不同就中断流程。
+
+| 能力 | `browser-use` | `agent-browser` |
+|------|---------------|-----------------|
+| 打开页面 | `browser-use open <url>` | `agent-browser open <url>` |
+| 使用 Chrome 登录态 | `browser-use --profile "Default" open <url>` | `agent-browser` 无等价 `--profile` 参数，优先使用已持久化 session / cookie / auth login |
+| 查看页面元素 | `browser-use state` | `agent-browser snapshot -i` |
+| 点击元素 | `browser-use click <index>` | `agent-browser click @e1` |
+| 输入内容 | `browser-use input <index> "text"` | `agent-browser fill @e1 "text"` |
+| 页面执行 JS | `browser-use eval "..."` | `agent-browser eval "..."` 或用 `get text body` / `snapshot -i --json` 降级 |
+| 等待文本 | `browser-use wait text "缺陷"` | `agent-browser wait 2000` 后配合 `agent-browser get text body` 检查 |
+| 等待元素 | `browser-use wait selector ".xx"` | `agent-browser wait @e1` 或重复 `snapshot -i` |
+| 截图 | `browser-use screenshot a.png` | `agent-browser screenshot a.png` |
+| 滚动 | `browser-use scroll down` | `agent-browser scroll down 500` |
+| 导入 Cookie | `browser-use cookies import file.json` | 优先使用 `agent-browser state load` 或已保存 session；无直接等价时走 SSO 登录 |
+
+执行要求：
+
+1. 先检测命令可用性：`which browser-use`，否则 `which agent-browser`
+2. 如果使用 `agent-browser`，每次页面跳转或 DOM 变化后都要重新执行 `agent-browser snapshot -i`
+3. `agent-browser` 的元素是 `@e1`、`@e2` 这类引用，不是数字索引，不能直接照抄 `browser-use click 5`
+4. 如果示例里的 `eval` 在 `agent-browser` 环境不可用，先用 `get text body`、`snapshot -i --json`、截图三种方式组合提取信息
 
 ---
 
@@ -695,7 +727,7 @@ read-comments (获取所有评论，含关键补充信息)
 
 ## 强制约束
 
-1. **认证优先级**: Chrome Profile → Cookie 导入 → SSO 统一登录（自动填写账号密码），严格按顺序尝试
+1. **认证优先级**: 先选可用 CLI（优先 `browser-use`，否则 `agent-browser`），再按 Chrome Profile → Cookie / Session → SSO 统一登录的顺序尝试认证
 2. **视口覆写**: 每次打开 Coding 页面后必须执行视口覆写（innerWidth=1920），防止移动端拦截
 3. **不能只看描述**: 读取 Bug 时必须同时读评论，评论中经常有关键信息
 4. **JS 选择器可能失效**: Coding 平台使用动态渲染，选择器可能需要根据实际页面调整
@@ -708,3 +740,4 @@ read-comments (获取所有评论，含关键补充信息)
 - Coding 平台页面结构: [references/coding-pages.md](references/coding-pages.md)
 - 认证配置模板: [config/coding-auth.yaml.example](config/coding-auth.yaml.example)
 - browser-use CLI 文档: `.agents/skills/browser-use/SKILL.md`
+- agent-browser CLI 文档: `/Users/xiaoqi/.agents/skills/agent-browser/SKILL.md`

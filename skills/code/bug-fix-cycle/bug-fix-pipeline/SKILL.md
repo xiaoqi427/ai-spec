@@ -1,6 +1,6 @@
 ---
 name: bug-fix-pipeline
-description: Coding Bug 全流程自动修复编排器。从 Coding 平台读取 Bug 列表 → 分析老新代码 → 判断前后端 → 修复后端 → SIT 验证 → 更新 Bug 状态。编排 coding-bug-ops、yili-code-fix、sit-smoke-test 三个 skill 完成端到端自动化。当用户需要批量或单个修复 Coding Bug 时使用。
+description: Coding Bug 全流程自动修复编排器。从 Coding 平台读取 Bug 列表 → 初始化运行记忆 → 分析老新代码 → 判断前后端 → 修复后端 → 本地/SIT 验证 → 自改进复盘 → 更新 Bug 状态。编排 memory-setup、coding-bug-ops、yili-code-fix、local-api-test、coding-ci-deploy、sit-smoke-test、sit-verify-analyze、self-improving-agent 等 skill 完成端到端自动化。当用户需要批量或单个修复 Coding Bug 时使用。
 ---
 # Bug Fix Pipeline (全流程自动修复编排器)
 
@@ -8,17 +8,19 @@ description: Coding Bug 全流程自动修复编排器。从 Coding 平台读取
 
 ## 概述
 
-此 skill 是**全流程编排器**，协调以下 7 个 skill 完成 Coding Bug 从发现到修复闭环的端到端自动化:
+此 skill 是**全流程编排器**，协调以下 9 个 skill 完成 Coding Bug 从发现到修复闭环的端到端自动化:
 
 ```
 bug-fix-pipeline
+  ├── memory-setup         → 初始化本轮运行记忆、约束、Bug 队列、当前游标
   ├── coding-bug-ops      → 读/写 Coding Bug (描述+评论+转派+备注)
   ├── yili-code-fix       → 代码分析 + 修复
   ├── local-api-test      → 本地启动 + curl 测试接口
   ├── git-commit-push     → 代码提交 (pull→冲突检测→人工确认→push)
   ├── coding-ci-deploy    → CI 构建发布到 SIT
   ├── sit-smoke-test      → SIT 环境做单验证
-  └── sit-verify-analyze  → SIT 验证后分析 + 路由决策
+  ├── sit-verify-analyze  → SIT 验证后分析 + 路由决策
+  └── self-improving-agent → 每个 Bug 结束后复盘，沉淀可复用检查项和启发式
 ```
 
 ## 外部依赖
@@ -29,12 +31,18 @@ bug-fix-pipeline
 | `agent-browser`          | 按项目环境单独安装或配置                                                | `bug-fix-pipeline` 默认首选的浏览器验证能力，用于复现、截图和修复回归 |
 | `browser-use`            | `npx openskills add browser-use/browser-use@browser-use`                | 需要复用本机 Chrome Profile、Cookie、登录态时作为降级方案       |
 | `playwright-e2e-testing` | `npx openskills add bobmatnyc/claude-mpm-skills@playwright-e2e-testing` | 需要稳定回归脚本、断言和可重复执行测试时使用                    |
+| `self-improving-agent`   | `npx skills add charon-fan/agent-playbook@self-improving-agent -g -y`   | 可选外部增强版自改进循环。若已安装，可补充更完整的 pattern/memory 结构 |
+| `memory-management`      | `npx skills add https://github.com/anthropics/knowledge-work-plugins --skill memory-management -g -y` | 可选外部记忆管理能力。用于补充热缓存/深记忆组织方式，不替代本地 `memory-setup` |
 
 说明:
 
 - `bug-fix-pipeline` 中凡是“打开 SIT 页面、按步骤复现、截图存证、验证修复”这类浏览器任务，默认优先使用 `agent-browser`
 - 只有在必须复用登录态、现有浏览器 Profile、Cookie 或沿用现成 CLI 脚本时，才退回 `browser-use`
 - 需要沉淀为正式可复跑回归脚本时，再使用 `playwright-e2e-testing`
+- 运行记忆与自改进采用**双轨兼容**:
+  - 主轨: 仓库内置 `memory-setup` + `self-improving-agent`
+  - 增强轨: 已安装 OpenSkill 时，可参考 `memory-management` + 市场版 `self-improving-agent`
+- 如果本地 skill 与 OpenSkill 同时存在，**以本仓库 skill 为编排主语义**，OpenSkill 只补方法论和结构，不替换主流程步骤
 - 上述能力都属于联调/冒烟/E2E 范畴，不属于单元测试依赖
 
 内部依赖 (无需安装):
@@ -49,6 +57,8 @@ bug-fix-pipeline
 | `coding-ci-deploy`   | `ai-spec/skills/code/coding-ci-deploy/`   |
 | `sit-smoke-test`     | `ai-spec/skills/code/sit-smoke-test/`     |
 | `sit-verify-analyze` | `ai-spec/skills/code/sit-verify-analyze/` |
+| `memory-setup`       | `ai-spec/skills/code/memory-setup/`       |
+| `self-improving-agent` | `ai-spec/skills/code/self-improving-agent/` |
 | `compare-transform`  | `ai-spec/skills/code/compare-transform/`  |
 | `transform-claim`    | `ai-spec/skills/code/transform-claim/`    |
 | `front-end-skills`   | `ai-spec/skills/code/front-end-skills/`   |
@@ -99,11 +109,17 @@ bug-fix-pipeline
 ```
 输入: Coding filter URL (bug列表) 或 单个 bug ID
   │
+  ├─ Step 0: 初始化运行记忆
+  │   └─ memory-setup → 记录目标、约束、Bug 队列、模块映射、当前阶段
+  │
   ├─ Step 1: 获取 Bug 列表
   │   ├─ 单 Bug: coding-bug-ops.read-detail + read-comments
   │   └─ 批量: coding-bug-ops.read-list → 逐个 read-detail + read-comments
   │
   ├─ Step 2: 遍历每个 Bug
+  │   │
+  │   ├─ 2.0 装载当前 Bug 记忆
+  │   │   └─ memory-setup.update → current_bug / phase / 继承上一个 Bug 的检查项
   │   │
   │   ├─ 2.1 读取 Bug 完整上下文
   │   │   ├─ coding-bug-ops.read-detail   → 标题、描述、字段
@@ -125,7 +141,7 @@ bug-fix-pipeline
   │   │   │   │   "【AI分析】前端问题, 对应老代码 xxx, 新框架不修改"
   │   │   │   ├─ coding-bug-ops.reassign → 从排期表查找前端负责人并转派
   │   │   │   │   (读取 fssc-schedule.xlsx "FSSC系统功能整体排期" sheet)
-  │   │   │   └─ 跳到 Step 2.11 记录结果，继续下一个 Bug
+  │   │   │   └─ 跳到 Step 2.11 复盘并记录结果，继续下一个 Bug
   │   │   │
   │   │   └─ [后端 Bug]
   │   │       ├─ yili-code-fix.fix       → 修复代码
@@ -162,9 +178,14 @@ bug-fix-pipeline
   │   │       │
   │   │       └─ [环境异常] → ⏸️ 等待人工排查
   │   │
-  │   └─ 2.11 记录处理结果
+  │   ├─ 2.11 单 Bug 复盘与自改进
+  │   │   ├─ self-improving-agent → 提炼 missed signals / 新检查项 / 下轮启发式
+  │   │   └─ memory-setup.update  → 回写 done / lessons / next_bug_hints
+  │   │
+  │   └─ 2.12 记录处理结果
   │
-  └─ Step 3: 输出汇总报告
+  └─ Step 3: 输出汇总报告与全局复盘
+      ├─ self-improving-agent → 汇总跨 Bug 的共性失误、有效策略、建议更新项
       ├─ 修复了哪些 Bug（后端）+ 修改文件列表
       ├─ 标注了哪些 Bug（前端）+ 老代码位置
       ├─ 转派了哪些 Bug（前端问题）+ 转派给谁
@@ -178,6 +199,40 @@ bug-fix-pipeline
 ---
 
 ## 详细步骤说明
+
+### Step 0: 初始化运行记忆
+
+```
+读取 memory-setup SKILL.md
+→ 建立 run memory
+→ 记录:
+  - objective
+  - bug_queue
+  - current_bug
+  - confirmed_constraints
+  - service_map
+  - environment
+  - retry_budget
+  - carry_forward_checks
+```
+
+建议的最小运行记忆结构:
+
+```markdown
+## Run Memory
+- objective:
+- mode: single / batch
+- bug_queue:
+- current_bug:
+- phase:
+- confirmed_constraints:
+- assumptions_to_verify:
+- carry_forward_checks:
+- service_map:
+- completed:
+- risks:
+- next_action:
+```
 
 ### Step 1: 获取 Bug 列表
 
@@ -201,6 +256,15 @@ bug-fix-pipeline
 ```
 
 ### Step 2: 遍历处理每个 Bug
+
+#### 2.0 装载当前 Bug 记忆
+
+```
+memory-setup.update(current_bug=bug-id, phase=analysis)
+→ 读取上一个 Bug 沉淀的检查项
+→ 读取当前模块/service 路由映射
+→ 把重试上限、已知环境问题带入本轮分析
+```
 
 #### 2.1 读取完整上下文
 
@@ -289,7 +353,27 @@ yili-code-fix.fix(bug-context)
 | 后端未修复 | API 返回错误        | 评论+回到 Step 2.2 重新修复（最多重试1次） |
 | 环境问题   | 接口异常/超时       | 评论+暂停等待人工                          |
 
-### Step 3: 输出汇总报告
+#### 2.11 单 Bug 复盘与自改进
+
+```
+读取 self-improving-agent SKILL.md
+→ self-improving-agent.review(bug-result)
+→ 输出:
+  - what_worked
+  - what_failed
+  - missed_signals
+  - new_heuristics
+  - checklist_updates
+→ memory-setup.update(lessons learned)
+```
+
+要求:
+
+- 只保留可复用、可执行的经验
+- 不写空话
+- 单 Bug 复盘控制在 5-10 行
+
+### Step 3: 输出汇总报告与全局复盘
 
 ```markdown
 ## Bug 修复汇总报告
@@ -327,6 +411,11 @@ yili-code-fix.fix(bug-context)
 |--------|---------|------|------|
 | #4992 | T044 冒烟测试 | 通过 | sit-smoke-T044.png |
 
+### 自改进摘要
+- 新增检查项: 例如“先用 local-api-test 反推前端 service，再决定 claim-base 还是 claim-tr”
+- 重复失误: 例如“遗漏评论中的业务口径变更”
+- 下轮默认动作: 例如“列表类接口先生成 PageParam 最小体”
+
 ### 未处理
 | Bug ID | 标题 | 原因 |
 |--------|------|------|
@@ -362,6 +451,12 @@ yili-code-fix.fix(bug-context)
 - Coding 评论记录完整修复过程
 - 汇总报告可作为交付物
 
+### 5. 记忆与自改进闭环
+
+- `memory-setup` 负责在长流程中维持一致上下文
+- `self-improving-agent` 负责把单次经验转成下一次可复用检查项
+- 复盘结果必须回写到运行记忆，避免同类遗漏重复发生
+
 ---
 
 ## 强制约束
@@ -374,10 +469,13 @@ yili-code-fix.fix(bug-context)
 6. **评论必读**: 读取 Bug 时必须同时读评论
 7. **分层遵守**: 修复代码遵守 agents.md 分层规范
 8. **用户规则**: 遵守 user-rules.md 中"不修改代码、需要变更请重写"原则
+9. **记忆先行**: 进入批量流程前必须初始化运行记忆
+10. **每 Bug 复盘**: 每个 Bug 结束后必须做一次简短自改进复盘
 
 ## 参考
 
 - 编排流程图: [references/pipeline-flow.md](references/pipeline-flow.md)
+- 运行记忆: `ai-spec/skills/code/memory-setup/SKILL.md`
 - Coding 操作: `ai-spec/skills/code/coding-bug-ops/SKILL.md`
 - 代码修复: `ai-spec/skills/code/yili-code-fix/SKILL.md`
 - 本地测试: `ai-spec/skills/code/local-api-test/SKILL.md`
@@ -385,5 +483,6 @@ yili-code-fix.fix(bug-context)
 - CI 发布: `ai-spec/skills/code/coding-ci-deploy/SKILL.md`
 - SIT 测试: `ai-spec/skills/code/sit-smoke-test/SKILL.md`
 - 验证分析: `ai-spec/skills/code/sit-verify-analyze/SKILL.md`
+- 自改进复盘: `ai-spec/skills/code/self-improving-agent/SKILL.md`
 - 项目规范: `.qoder/rules/agents.md`
 - 个人偏好: `.qoder/rules/user-rules.md`
