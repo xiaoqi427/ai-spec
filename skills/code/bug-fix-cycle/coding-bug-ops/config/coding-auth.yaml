@@ -1,0 +1,8 @@
+# Coding 平台认证配置
+coding_url: https://yldc.coding.yili.com
+user_id: xiaoqi1
+user_display_name: 肖祺
+chrome_profile: Default
+cookie_file: config/coding-cookies.json
+sso_username: xiaoqi1
+sso_password: xiaoqi@19900427B

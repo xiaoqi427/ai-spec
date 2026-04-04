@@ -26,7 +26,7 @@
         ┌──────────────────────────────────────┐
         │  Phase 3: 批量修复                    │
         │  Fix & Commit                          │
-        │  逐个: 分析→确认→修复→编译→commit    │
+        │  逐个: 并行分析→[确认]→修复→编译→commit │
         └──────────────────┬───────────────────┘
                            │
         ┌──────────────────▼───────────────────┐
@@ -84,7 +84,6 @@
        ▼
 ┌─────────────┐
 │  P1_DONE     │ 生成 prefetch-summary.json
-│  关闭浏览器  │
 └──────┬──────┘
        │
        ▼
@@ -92,7 +91,17 @@
 │P1_TEST_INDEX │ [可选] 解析测试用例索引
 │test-case-ref │ → test-case-index.json
 │  .parse      │ (已存在且未过期则跳过)
-└─────────────┘
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│P1_COOKIE_EXP │ 导出浏览器 Cookie
+│              │ → config/coding-cookies.json
+│              │ 供 Phase 5 复用
+└──────┬──────┘
+       │
+       ▼
+  关闭浏览器
 ```
 
 ---
@@ -136,6 +145,7 @@
 ```
 ┌─────────────┐
 │  P3_LOAD     │ 读取 fix-queue.json
+│              │ 读取 mode (offline/interactive)
 └──────┬──────┘
        │
        ▼
@@ -156,32 +166,41 @@ action=fix     action=tag     action=skip
   │                       记录结果 ──▶ P3_NEXT
   │
   ▼
-┌─────────────┐
-│P3_LOAD_TEST  │ [可选] test-case-ref.lookup
-│  CASE        │ 加载相关测试用例参考
-│              │ ⚠️ 仅供参考
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  P3_ANALYZE  │ yili-code-fix.analyze
-│  分析 Bug    │ [可选] db-query
-└──────┬──────┘
+┌──────────────────┐
+│P3_PARALLEL_ANALYZE│ 并行分析 (fork → join)
+│                  │
+│  ┌───┐ ┌───┐ ┌──┴──┐
+│  │ A │ │ B │ │  C  │
+│  │分析│ │用例│ │查库 │
+│  └─┬─┘ └─┬─┘ └──┬──┘
+│    └──┬───┘──────┘
+│       ▼ join
+│  合并分析结果
+└──────┬───────────┘
        │
        ▼
 ┌─────────────┐
 │  P3_PRESENT  │ 展示分析方案
-│  等待确认    │
 └──────┬──────┘
        │
-  ┌────┴────┐
-  │         │
-  ▼         ▼
-确认      跳过
-  │         │
-  │         └──▶ 记录跳过 ──▶ P3_NEXT
-  │
-  ▼
+  ┌────┴──────────────┐
+  │                    │
+  ▼                    ▼
+mode=interactive   mode=offline
+  │                    │
+  ▼                    │
+⏸️ 等待确认           │
+  │                    │
+  ┌────┴────┐          │
+  │         │          │
+  ▼         ▼          │
+确认      跳过         │
+  │         │          │
+  │    记录跳过→P3_NEXT│
+  │                    │
+  └────────┬───────────┘
+           │ 自动继续
+           ▼
 ┌─────────────┐
 │  P3_FIX      │ yili-code-fix.fix
 │  执行修复    │
@@ -201,18 +220,17 @@ action=fix     action=tag     action=skip
   │         └──▶ 重试(最多3次) ──▶ 失败则标注
   │
   ▼
-┌─────────────┐
-│P3_UNIT_TEST  │ [可选] fix-verify
-│  单元测试    │ discover-tests + run-tests
-│              │ verdict: PASS/WARN/FAIL/SKIP
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│P3_DATA_VERIFY│ [可选] fix-verify → db-query
-│  数据验证    │ check-data + trace-branch
-│              │ verdict: PASS/WARN/FAIL/SKIP
-└──────┬──────┘
+┌──────────────────┐
+│P3_PARALLEL_VERIFY │ [可选] 并行验证 (fork → join)
+│                  │
+│  ┌─────┐ ┌─────┐│
+│  │  A  │ │  B  ││
+│  │单测 │ │数据 ││
+│  └──┬──┘ └──┬──┘│
+│     └───┬───┘   │
+│         ▼ join  │
+│  合并验证结果   │
+└──────┬──────────┘
        │
        ▼
 ┌─────────────┐
@@ -301,7 +319,7 @@ P4_DONE
        ▼
 ┌─────────────┐
 │  P5_LOGIN    │ 打开 Coding 浏览器
-│  登录 Coding │
+│  认证降级:   │ Cookie文件 → Profile → SSO
 └──────┬──────┘
        │
        ▼
@@ -354,7 +372,7 @@ status=fixed   status=tag     status=skipped
   │   │
   │   ├─ 2a. [可选] db-query.check-data → 查库了解数据现状
   │   │
-  │   ├─ 3. 展示分析方案 → ⏸️ 等待确认
+  │   ├─ 3. 展示分析方案 → [确认(offline跳过)]
   │   │
   │   ├─ 4a. [前端] → 准备评论草稿 + 查找前端负责人
   │   │
@@ -397,7 +415,7 @@ status=fixed   status=tag     status=skipped
   │
   ├─ Phase 3: 批量修复
   │   └─ for each bug in fix-queue (按 priority):
-  │       └─ [可选]加载测试用例 → 分析 → 确认 → 修复 → 编译 → [单元测试] → [数据验证] → [接口测试] → commit → 复盘
+  │       └─ 并行分析 → [确认(offline跳过)] → 修复 → 编译 → [并行验证] → [接口测试] → commit → 复盘
   │
   ├─ Phase 4: 统一推送
   │   └─ git pull --rebase + push
@@ -413,6 +431,13 @@ status=fixed   status=tag     status=skipped
 
 ## 状态标记说明
 
+### 执行模式
+
+| 模式 | auto_confirm | 用户确认 (P3_PRESENT) | 适用场景 |
+|------|-------------|----------------------|---------|
+| `offline` | true | 自动跳过 | 批量修复、无人值守 |
+| `interactive` | false | ⏸️ 必须等待 | 逐个审查、首次修复 |
+
 ### Phase 级别状态
 
 | 状态 | 含义 |
@@ -422,17 +447,17 @@ status=fixed   status=tag     status=skipped
 | P1_DETAIL | 正在采集 Bug 详情 |
 | P1_DONE | 预采集完成 |
 | P1_TEST_INDEX | [可选] 正在解析测试用例索引 |
+| P1_COOKIE_EXPORT | 正在导出浏览器 Cookie |
 | P2_LOAD | 正在加载预采集数据 |
 | P2_CLASSIFY | 正在初步分类 |
 | P2_PRESENT | 等待用户确认分诊结果 |
 | P2_DONE | 分诊完成 |
 | P3_LOAD | 正在加载修复队列 |
-| P3_LOAD_TESTCASE | [可选] 正在加载测试用例参考 |
-| P3_ANALYZE | 正在分析 Bug |
+| P3_PARALLEL_ANALYZE | 正在并行分析 (fork: analyze + test-case + db-query) |
+| P3_PRESENT | 展示分析方案（offline 自动跳过确认） |
 | P3_FIX | 正在修复 |
 | P3_COMPILE | 正在编译 |
-| P3_UNIT_TEST | [可选] 正在运行单元测试 |
-| P3_DATA_VERIFY | [可选] 正在执行数据验证 |
+| P3_PARALLEL_VERIFY | [可选] 正在并行验证 (fork: unit-test + data-verify) |
 | P3_TEST | 正在本地测试 |
 | P3_COMMIT | 正在 git commit |
 | P3_REVIEW | 正在复盘 |
@@ -486,7 +511,8 @@ status=fixed   status=tag     status=skipped
 
 | 错误类型 | 发生阶段 | 处理方式 |
 |----------|---------|---------|
-| 浏览器认证失败 | Phase 1/5 | 降级认证策略 (Profile -> Cookie -> SSO) |
+| 浏览器认证失败 | Phase 1/5 | 降级认证策略 (Cookie 文件 → Profile → SSO) |
+| Cookie 导入失败 | Phase 5 | Cookie 文件不存在或过期 → 降级到 Profile → SSO |
 | Bug 详情读取失败 | Phase 1 | 重试1次，失败则跳过并记录，不阻塞其他 Bug |
 | 老代码定位失败 | Phase 3 | 报告给用户，等待手动指定 |
 | 新代码定位失败 | Phase 3 | 报告给用户，可能未迁移 |

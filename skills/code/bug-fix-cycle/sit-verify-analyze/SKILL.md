@@ -61,23 +61,33 @@ SIT 验证结果
 | API 错误 | 错误/缺失 | 不关心 | **后端未修复** |
 | API 超时/500 | 异常 | 不关心 | **环境/部署问题** |
 
-### Step 2: 验证 API 数据
+### Step 2: 验证 API 数据（curl，不需要浏览器）
 
-在 SIT 环境通过 curl 直接验证后端接口返回：
+通过 curl 直接验证后端接口返回，**无需浏览器**，避免 DOM 交互不稳定问题：
 
 ```bash
-# 1. 先登录获取 Cookie（复用 local-api-test 的方式，但对 SIT 环境）
+# 1. 检查 SIT Cookie 缓存是否有效
+#    Cookie 文件: /tmp/sit-cookies.txt
+#    如果文件存在且未过期（30分钟内），直接复用，跳到步骤 2
+
+# 1a. Cookie 不存在或过期 → 重新登录获取
 curl -v -X POST http://pri-fssc-web-sit.digitalyili.com/api/config/sys/login \
   -H "Content-Type: application/json" \
   -d '{"usernum":"fsscadmin","password":"2"}' \
   -c /tmp/sit-cookies.txt
 
-# 2. 调用相关接口验证数据
+# 2. 调用相关接口验证数据（复用缓存 Cookie）
 curl -s -X GET "http://pri-fssc-web-sit.digitalyili.com/api/config/<path>" \
   -b /tmp/sit-cookies.txt | python3 -m json.tool
 
 # 3. 检查返回数据中修复的字段是否正确
 ```
+
+**SIT Cookie 缓存策略**:
+- 缓存文件: `/tmp/sit-cookies.txt`
+- 有效期: 30 分钟内复用，不重复登录
+- 过期判断: `find /tmp/sit-cookies.txt -mmin -30` 有结果则未过期
+- 所有 curl 验证共享同一份 Cookie
 
 **判断标准**:
 - API 返回的修复字段有值且正确 → API 正确
@@ -115,13 +125,16 @@ db-query.check-data(bug-context)
 
 **注意**: 此步骤为可选增强，不改变主流程判断逻辑。仅在需要精确定位"后端未修复"根因时使用。
 
-### Step 3: 验证页面展示
+### Step 3: 验证页面展示（浏览器，仅此步骤需要）
 
-使用 browser-use 在 SIT 页面操作并检查：
+使用 browser-use 在 SIT 页面操作并检查（**只有此步骤需要浏览器**，Step 2 用 curl）：
 
 ```bash
-# 1. 登录 SIT
-browser-use --profile "Default" open "http://pri-fssc-web-sit.digitalyili.com"
+# 1. 登录 SIT（认证顺序: Cookie 文件 → Profile → 账号密码）
+#    优先导入 config/sit-cookies.json
+browser-use cookies import config/sit-cookies.json
+browser-use open "http://pri-fssc-web-sit.digitalyili.com"
+# → 如果 Cookie 失效，降级到 Profile 或账号密码登录
 
 # 2. 导航到 Bug 对应页面
 

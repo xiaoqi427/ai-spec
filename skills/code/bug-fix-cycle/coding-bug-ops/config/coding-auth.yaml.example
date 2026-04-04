@@ -6,10 +6,15 @@
 coding_url: https://yldc.coding.yili.com
 
 # 当前用户信息（用于筛选"我的 Bug"）
-user_id: xiaoqi1
-user_display_name: 肖祺
+user_id: your_user_id
+user_display_name: 你的显示名
 
-# 认证方式1: Chrome Profile 名称 (优先方案)
+# 认证方式0: Personal Access Token (推荐，Python 脚本首选)
+# Coding → 个人设置 → 访问令牌 → 新建令牌（勾选 project:issues 权限）
+# 用于 prefetch.py 脚本的 Open API 调用，无需浏览器
+personal_access_token: ""
+
+# 认证方式1: Chrome Profile 名称 (浏览器自动化优先)
 # 使用 browser-use profile list 查看可用 Profile
 chrome_profile: Default
 
@@ -20,5 +25,5 @@ cookie_file: config/coding-cookies.json
 
 # 认证方式3: SSO 统一登录 (兜底方案)
 # Coding 登录页 → 点击 "SSO 统一登录" → 跳转 SSO 页面 → 输入以下账号密码
-sso_username: xiaoqi1
-sso_password: xiaoqi@19900427B
+sso_username: your_sso_username
+sso_password: your_sso_password

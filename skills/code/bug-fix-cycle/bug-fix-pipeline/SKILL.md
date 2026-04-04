@@ -52,7 +52,7 @@ bug-fix-pipeline (五阶段)
 ```
 Phase 1: 预采集  → 批量读取 Bug + 截图（浏览器集中使用）
 Phase 2: 分诊台  → 用户预览、排序、标记跳过（交互式确认）
-Phase 3: 批量修复 → 按优先级逐个 分析→确认→修复→编译→单元测试→数据验证→本地测试→commit（修一个提交一个）
+Phase 3: 批量修复 → 按优先级逐个 并行分析→[确认]→修复→编译→并行验证→本地测试→commit（offline 模式跳过确认）
 Phase 4: 统一推送 → pull --rebase + 冲突检测 + push（一次性推送）
 Phase 5: 统一闭环 → CI 构建 + SIT 验证 + Coding 操作（评论+状态+转派）
 ```
@@ -135,6 +135,9 @@ Phase 5: 统一闭环 → CI 构建 + SIT 验证 + Coding 操作（评论+状态
 
 # 批量模式，跳过 Phase 5 的 SIT 验证
 /skill bug-fix-pipeline --filter <url> --skip-sit-verify
+
+# 批量模式，离线全自动（跳过逐 Bug 用户确认）
+/skill bug-fix-pipeline --filter <url> --mode offline
 ```
 
 ### 参数说明
@@ -235,7 +238,8 @@ yili-out/test-case-index/
   │   ├─ 1.6 [可选] 解析测试用例索引 (test-case-ref.parse)
   │   │   └─ 生成 yili-out/test-case-index/test-case-index.json
   │   │       (索引已存在且未过期则跳过)
-  │   └─ 1.7 关闭浏览器
+  │   ├─ 1.7 导出浏览器 Cookie → config/coding-cookies.json
+  │   └─ 1.8 关闭浏览器
   │
   ├─ Phase 2: 分诊台 (Triage)
   │   ├─ 2.1 读取 prefetch-summary.json
@@ -254,16 +258,17 @@ yili-out/test-case-index/
   │   ├─ 对 action=fix 的每个 Bug (按 priority 顺序):
   │   │   ├─ 3.1 装载当前 Bug 记忆 (memory-setup.update)
   │   │   ├─ 3.2 读取本地预采集数据 (detail.txt + comments.txt)
-  │   │   ├─ 3.2.1 [可选] 加载相关测试用例参考 (test-case-ref.lookup)
-  │   │   │   └─ ⚠️ 仅供参考，测试用例不一定准确
-  │   │   ├─ 3.3 分析 Bug (yili-code-fix.analyze)
-  │   │   │   └─ [可选] db-query.check-data → 查库辅助定位
+  │   │   ├─ 3.3 并行分析 (fork → join)
+  │   │   │   ├─ [A] yili-code-fix.analyze → 遗漏清单
+  │   │   │   ├─ [B] test-case-ref.lookup → 测试用例参考
+  │   │   │   └─ [C] [可选] db-query.check-data → 数据现状
   │   │   ├─ 3.4 输出分析方案
-  │   │   ├─ 3.5 ⏸️ 等待用户确认
+  │   │   ├─ 3.5 [条件] 等待用户确认 (offline 模式跳过)
   │   │   ├─ 3.6 执行修复 (yili-code-fix.fix)
   │   │   ├─ 3.7 编译验证 (mvn compile)
-  │   │   ├─ 3.7.1 [可选] 单元测试验证 (fix-verify.discover-tests + run-tests)
-  │   │   ├─ 3.7.2 [可选] 数据验证 (fix-verify.verify-data → db-query)
+  │   │   ├─ 3.7.1 [可选] 并行验证 (fork → join)
+  │   │   │   ├─ [A] fix-verify.run-tests → 单元测试
+  │   │   │   └─ [B] fix-verify.verify-data → 数据验证
   │   │   ├─ 3.8 [可选] 本地接口测试 (local-api-test)
   │   │   ├─ 3.9 git commit → 立即提交到本地
   │   │   │   └─ fix(<module>): #<bug-id> <标题>
@@ -293,7 +298,7 @@ yili-out/test-case-index/
       │   ├─ sit-smoke-test → 对每个已修复 Bug 做冒烟测试
       │   └─ sit-verify-analyze → 分析验证结果
       │
-      ├─ 5.3 一次性打开 Coding 浏览器
+      ├─ 5.3 打开 Coding 浏览器 (优先导入 config/coding-cookies.json)
       │
       ├─ 5.4 遍历 fix-queue.results:
       │   │
@@ -327,7 +332,52 @@ yili-out/test-case-index/
 - 分析阶段纯离线，不依赖网络和浏览器稳定性
 - 采集数据不丢失，即使后续浏览器崩了/SIT 挂了，已采集的数据还在
 
-#### 1.1 初始化运行记忆
+#### 推荐方式: Python 脚本并行采集 (prefetch.py)
+
+**脚本位置**: `ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py`
+
+**优势**: 使用 Coding REST API + 线程池并行抓取，无需浏览器，速度快 5-10 倍。
+
+**安装依赖**:
+```bash
+pip3 install requests pyyaml --user --break-system-packages
+```
+
+**认证配置** (在 `coding-auth.yaml` 中添加):
+```yaml
+# 推荐: Personal Access Token (Coding → 个人设置 → 访问令牌 → 新建)
+personal_access_token: "your-token-here"
+```
+
+**使用示例**:
+```bash
+# 从筛选器 URL 抓取（默认 5 并发）
+python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py \
+  --filter "https://yldc.coding.yili.com/p/fssc/all/issues?filter=..."
+
+# 抓取分配给我的 Bug
+python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py --mine
+
+# 8 并发 + 强制刷新
+python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py --mine --workers 8 --force
+
+# 只抓取指定 Bug
+python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py --bugs 5186,5200,5399
+
+# 空跑模式（只列表不抓取）
+python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py --mine --dry-run
+```
+
+**认证降级顺序**: PAT → Cookie 文件 → SSO 登录
+**输出格式**: 与浏览器采集完全兼容 (metadata.json / detail.txt / comments.txt / prefetch-summary.json)
+
+---
+
+#### 备选方式: 浏览器自动化采集 (兼容旧流程)
+
+适用场景: 需要页面截图 (detail.png/comments.png) 或 Cookie 文件不可用时。
+
+##### 1.1 初始化运行记忆
 
 ```
 读取 memory-setup SKILL.md
@@ -341,7 +391,7 @@ yili-out/test-case-index/
   - environment
 ```
 
-#### 1.2-1.6 批量采集
+##### 1.2-1.6 批量采集
 
 ```bash
 # 1.2 打开浏览器登录 Coding
@@ -379,7 +429,10 @@ python3 ai-spec/skills/code/bug-fix-cycle/test-case-ref/scripts/parse_test_cases
   --incremental
 # → 索引已存在且源文件未修改则跳过
 
-# 1.7 关闭浏览器
+# 1.7 导出浏览器 Cookie（供 Phase 5 复用，避免重新登录）
+browser-use cookies export config/coding-cookies.json
+
+# 1.8 关闭浏览器
 ```
 
 **单 Bug 模式**: 跳过 Phase 1，直接在 Phase 3 中实时读取 Bug 详情。
@@ -657,7 +710,12 @@ SIT 验证结果更新到 fix-queue.json.results:
 #### 5.3-5.4 批量操作 Coding
 
 ```
-一次性打开 Coding 浏览器，保持登录态
+打开 Coding 浏览器（认证降级顺序）:
+  1. 优先导入 config/coding-cookies.json（Phase 1 导出）
+     → browser-use cookies import config/coding-cookies.json
+     → 打开 Coding 页面，检查是否需要登录
+  2. Cookie 过期 → 降级到 Chrome Profile
+  3. Profile 无效 → 降级到 SSO 统一登录
 
 遍历 fix-queue.results:
 
@@ -820,7 +878,7 @@ SIT 验证结果更新到 fix-queue.json.results:
 ## 强制约束
 
 1. **分诊台确认**: 批量模式下必须经过 Phase 2 分诊台确认，不自动开始修复
-2. **用户确认**: 每个 Bug 修复前（Phase 3.5）必须等待用户确认
+2. **用户确认**: 每个 Bug 修复前（Phase 3.5）须等待用户确认（`mode=offline` 时自动跳过）
 3. **代码与 Coding 解耦**: Phase 3 不操作 Coding，Phase 5 统一处理
 4. **评论完整**: 添加到 Coding 的评论必须包含老代码位置、修复说明
 5. **编译验证**: 修复后必须编译通过

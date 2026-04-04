@@ -115,19 +115,36 @@ agent-browser screenshot sit-smoke-T044.png
 
 当需要复用真实浏览器登录态时，按优先级依次尝试:
 
-### 1. Chrome Profile 复用（优先）
+### 公共前置步骤：视口覆写
+
+**所有 `browser-use open` 之后，立即注入 1920x1080 视口**，与 coding-bug-ops 保持一致：
 
 ```bash
-browser-use --profile "Default" open "http://pri-fssc-web-sit.digitalyili.com"
-browser-use state
-# 检查是否在登录页 → 如果不是，认证成功
+browser-use eval "
+  Object.defineProperty(window, 'innerWidth', {value: 1920, writable: true, configurable: true});
+  Object.defineProperty(window, 'innerHeight', {value: 1080, writable: true, configurable: true});
+  Object.defineProperty(document.documentElement, 'clientWidth', {value: 1920, writable: true, configurable: true});
+  window.dispatchEvent(new Event('resize'));
+"
 ```
 
-### 2. Cookie 导入（降级）
+### 1. Cookie 文件导入（优先，最稳定）
 
 ```bash
 browser-use cookies import config/sit-cookies.json
 browser-use open "http://pri-fssc-web-sit.digitalyili.com"
+# → 执行视口覆写（公共前置步骤）
+browser-use state
+# 检查是否在登录页 → 如果不是，认证成功
+```
+
+### 2. Chrome Profile 复用（降级）
+
+```bash
+browser-use --profile "Default" open "http://pri-fssc-web-sit.digitalyili.com"
+# → 执行视口覆写（公共前置步骤）
+browser-use state
+# 检查是否在登录页 → 如果不是，认证成功
 ```
 
 ### 3. 账号密码登录（兜底）
@@ -136,6 +153,7 @@ browser-use open "http://pri-fssc-web-sit.digitalyili.com"
 
 ```bash
 browser-use open "http://pri-fssc-web-sit.digitalyili.com"
+# → 执行视口覆写（公共前置步骤）
 browser-use wait text "登录"
 browser-use state
 
@@ -151,12 +169,15 @@ browser-use wait text "首页"
 browser-use screenshot sit-login-success.png
 ```
 
-### 认证验证
+### 认证验证 + Cookie 导出
 
 ```bash
 browser-use state
 # 检查 URL 是否包含 /login → 未登录
 # 检查页面是否有"首页"/"工作台" → 已登录
+
+# 登录成功后立即导出 Cookie（供后续复用）
+browser-use cookies export config/sit-cookies.json
 ```
 
 ---
@@ -444,7 +465,7 @@ npx playwright show-report
 ## 强制约束
 
 1. **执行优先级**: `agent-browser` → `browser-use` → `playwright-e2e-testing`
-2. **认证优先级**: 在进入 `browser-use` 认证分支后，按 Chrome Profile → Cookie → 账号密码执行
+2. **认证优先级**: 在进入 `browser-use` 认证分支后，按 Cookie 文件 → Chrome Profile → 账号密码执行
 3. **截图存证**: 每个关键步骤必须截图
 4. **不猜测路由**: 路由从代码或路由解析脚本推导，不要猜
 5. **超时处理**: 页面加载超时默认 60 秒
