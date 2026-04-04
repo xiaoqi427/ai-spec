@@ -83,6 +83,38 @@ curl -s -X GET "http://pri-fssc-web-sit.digitalyili.com/api/config/<path>" \
 - API 返回的修复字段有值且正确 → API 正确
 - API 返回的修复字段为空或错误 → API 错误（后端未修复）
 
+### Step 2.5: [可选] 数据库验证（db-query）
+
+当 API 返回错误时，可通过 `db-query` 查库进一步精确定位问题根因：
+
+```
+API 返回错误 → db-query.query 查库对比
+  │
+  ├─ 库里有正确数据 + API 没返回
+  │   → 后端查询/映射逻辑有问题（SQL/MyBatis/DO 转换）
+  │   → 重点检查: Mapper.xml, ServiceImpl 中的查询方法
+  │
+  ├─ 库里没有数据
+  │   → 后端写入逻辑有问题（数据根本没存进去）
+  │   → 重点检查: save/insert 方法, 事务是否提交
+  │
+  └─ 库里数据值不对
+      → 数据本身有问题（写入时值就不对，或被其他逻辑覆盖）
+      → 重点检查: 字段赋值逻辑, 是否有触发器/定时任务修改
+```
+
+**使用方式**:
+
+```bash
+# 通过 db-query 的 run_query.sh 在 SIT 环境查库
+./run_query.sh --env sit "SELECT * FROM T_PROC_CLAIM_HEAD WHERE CLAIM_NO = '<报账单号>'"
+
+# 或使用 db-query 的 check-data 能力，自动根据 Bug 上下文生成查询
+db-query.check-data(bug-context)
+```
+
+**注意**: 此步骤为可选增强，不改变主流程判断逻辑。仅在需要精确定位"后端未修复"根因时使用。
+
 ### Step 3: 验证页面展示
 
 使用 browser-use 在 SIT 页面操作并检查：
@@ -155,7 +187,11 @@ browser-use screenshot sit-verify-result.png
 ```
 执行动作:
   1. coding-bug-ops.add-comment(bug-id, "【SIT验证未通过】...")
-  2. 分析未修复原因:
+  2. [可选] db-query.query → 查库精确定位根因:
+     - 库里有正确数据 + API 没返回 → 后端查询逻辑问题
+     - 库里没数据 → 后端写入逻辑问题
+     - 库里数据不对 → 数据本身问题
+  3. 分析未修复原因:
      a. 代码没有部署成功 → 检查 CI 构建状态
      b. 修复逻辑有误 → 回到 yili-code-fix 重新分析修复
      c. 修复不完整 → 补充修复
@@ -254,4 +290,5 @@ bug-fix-pipeline
 - SIT 测试: `ai-spec/skills/code/sit-smoke-test/SKILL.md`
 - 代码修复: `ai-spec/skills/code/yili-code-fix/SKILL.md`
 - 本地测试: `ai-spec/skills/code/local-api-test/SKILL.md`
+- 数据库查询: `ai-spec/skills/code/bug-fix-cycle/db-query/SKILL.md`
 - Pipeline: `ai-spec/skills/code/bug-fix-pipeline/SKILL.md`

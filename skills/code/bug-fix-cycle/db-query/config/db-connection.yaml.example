@@ -1,0 +1,45 @@
+# ============================================================================
+# DB Query 连接配置
+# 使用方法: 复制此文件为 db-connection.yaml 并填写密码
+#   cp db-connection.yaml.example db-connection.yaml
+# 注意: db-connection.yaml 已加入 .gitignore，不会提交到代码库
+# 作者: sevenxiao
+# ============================================================================
+
+environments:
+  # 本地开发环境（连接开发库）
+  local:
+    host: "10.119.254.69"
+    port: 1521
+    sid: "yldb"
+    username: "yladmin"
+    password: "<your-password>"
+    tool: "sql"            # Oracle SQLcl (推荐)
+    # tool: "sqlplus"      # 如果没有 SQLcl，可以用 sqlplus
+
+  # SIT 测试环境
+  sit:
+    host: "<sit-db-host>"
+    port: 1521
+    sid: "<sit-db-sid>"
+    username: "<sit-user>"
+    password: "<sit-pass>"
+    tool: "sql"
+
+# 默认使用的环境
+default_env: local
+
+# 查询安全配置
+safety:
+  # 默认最大返回行数
+  max_rows: 100
+  # 查询超时（秒）
+  query_timeout: 60
+  # 是否允许 DML（INSERT/UPDATE/DELETE），需要用户确认
+  allow_dml: false
+  # 敏感字段列表（查询时自动排除）
+  sensitive_fields:
+    - PASSWORD
+    - TOKEN
+    - SECRET_KEY
+    - PRIVATE_KEY

@@ -117,6 +117,8 @@
 
 - `memory-management`
   适合作为 `memory-setup` 的长期记忆增强
+- `memory-setup`
+  持久化记忆搜索配置、MEMORY.md、日志和向量搜索（sundial-org 版）
 - `knowledge-management`
   适合作为个人/团队知识库和文件夹知识组织增强
 - `source-management`
@@ -125,6 +127,12 @@
   适合作为轻量任务面板和任务文件管理增强
 - `self-improving-agent`
   适合作为本地复盘模板的外部增强版本
+
+### Git 工作流
+
+- `git-workflow-with-conventional-commits`
+  Conventional Commits 规范的完整 Git 工作流，含 PR 创建、Worktree、错误恢复
+  适合作为本地 `git-commit-push` 的外部增强（PR 创建、HEREDOC 多行 commit、秘钥泄露处理等）
 
 ### 文档、幻灯片与前端设计增强
 
@@ -168,9 +176,11 @@
 - 文档与幻灯片：
   `doc-coauthoring`、`theme-factory`、`internal-comms`
 - 记忆与知识管理：
-  `memory-management`、`knowledge-management`、`source-management`
+  `memory-management`、`memory-setup`、`knowledge-management`、`source-management`
 - 原型与前端 artifact：
   `frontend-design`、`web-artifacts-builder`
+- Git 工作流：
+  `git-workflow-with-conventional-commits`
 - 技能演化：
   `self-improving-agent`、`skill-creator`、`skill-development`
 - 浏览器与验证：
@@ -244,10 +254,17 @@ npx skills add https://github.com/vercel-labs/agent-browser --skill agent-browse
 
 ```bash
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill memory-management -g -y
+npx skills add sundial-org/awesome-openclaw-skills@memory-setup -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill knowledge-management -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill source-management -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill task-management -g -y
 npx skills add charon-fan/agent-playbook@self-improving-agent -g -y
+```
+
+### Git 工作流增强
+
+```bash
+npx skills add "shunsukehayashi/miyabi-claude-plugins@Git Workflow with Conventional Commits" -g -y
 ```
 
 ### 文档、幻灯片与 artifact 增强
@@ -277,10 +294,12 @@ npx skills add https://github.com/browser-use/browser-use --skill browser-use -g
 npx skills add bobmatnyc/claude-mpm-skills@playwright-e2e-testing -g -y
 npx skills add https://github.com/vercel-labs/agent-browser --skill agent-browser -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill memory-management -g -y
+npx skills add sundial-org/awesome-openclaw-skills@memory-setup -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill knowledge-management -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill source-management -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill task-management -g -y
 npx skills add charon-fan/agent-playbook@self-improving-agent -g -y
+npx skills add "shunsukehayashi/miyabi-claude-plugins@Git Workflow with Conventional Commits" -g -y
 npx skills add https://github.com/anthropics/skills --skill doc-coauthoring -g -y
 npx skills add https://github.com/anthropics/skills --skill internal-comms -g -y
 npx skills add https://github.com/anthropics/knowledge-work-plugins --skill stakeholder-comms -g -y

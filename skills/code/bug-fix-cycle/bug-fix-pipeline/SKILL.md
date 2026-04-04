@@ -62,6 +62,7 @@ bug-fix-pipeline
 | `compare-transform`  | `ai-spec/skills/code/compare-transform/`  |
 | `transform-claim`    | `ai-spec/skills/code/transform-claim/`    |
 | `front-end-skills`   | `ai-spec/skills/code/front-end-skills/`   |
+| `db-query`           | `ai-spec/skills/code/bug-fix-cycle/db-query/` |
 
 ---
 
@@ -126,7 +127,8 @@ bug-fix-pipeline
   │   │   └─ coding-bug-ops.read-comments → 所有评论 (关键!)
   │   │
   │   ├─ 2.2 分析 Bug
-  │   │   └─ yili-code-fix.analyze → 对比老新代码, 输出遗漏清单
+  │   │   ├─ yili-code-fix.analyze → 对比老新代码, 输出遗漏清单
+  │   │   └─ [可选] db-query.check-data → 查库了解数据现状，辅助定位问题
   │   │
   │   ├─ 2.3 输出分析方案
   │   │   └─ 展示: 遗漏清单 + 前后端分类 + 修复计划
@@ -148,7 +150,8 @@ bug-fix-pipeline
   │   │       └─ mvn compile             → 编译验证
   │   │
   │   ├─ 2.6 本地接口测试
-  │   │   └─ local-api-test → 本地启动服务 → curl 登录 → curl 测试接口 → 验证响应
+  │   │   ├─ local-api-test → 本地启动服务 → curl 登录 → curl 测试接口 → 验证响应
+  │   │   └─ [可选] db-query.verify-fix → 验证数据库中数据变更是否符合预期
   │   │
   │   ├─ 2.7 ⏸️ 提交代码（人工确认）
   │   │   └─ git-commit-push → pull更新 → 冲突检测 → 展示diff → 用户确认 → push
@@ -174,6 +177,10 @@ bug-fix-pipeline
   │   │       │
   │   │       ├─ [API错误] → 后端未修复
   │   │       │   ├─ coding-bug-ops.add-comment (未修复分析)
+  │   │       │   ├─ [可选] db-query.query → 查库对比，精确定位问题
+  │   │       │   │   ├─ 库里有正确数据 + API 没返回 → 后端查询逻辑问题
+  │   │       │   │   ├─ 库里没数据 → 后端写入逻辑问题
+  │   │       │   │   └─ 库里数据不对 → 数据本身问题
   │   │       │   └─ 回到 Step 2.2 重新分析修复
   │   │       │
   │   │       └─ [环境异常] → ⏸️ 等待人工排查
@@ -483,6 +490,7 @@ yili-code-fix.fix(bug-context)
 - CI 发布: `ai-spec/skills/code/coding-ci-deploy/SKILL.md`
 - SIT 测试: `ai-spec/skills/code/sit-smoke-test/SKILL.md`
 - 验证分析: `ai-spec/skills/code/sit-verify-analyze/SKILL.md`
+- 数据库查询: `ai-spec/skills/code/bug-fix-cycle/db-query/SKILL.md`
 - 自改进复盘: `ai-spec/skills/code/self-improving-agent/SKILL.md`
 - 项目规范: `.qoder/rules/agents.md`
 - 个人偏好: `.qoder/rules/user-rules.md`

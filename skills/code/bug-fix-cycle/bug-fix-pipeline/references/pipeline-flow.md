@@ -32,6 +32,13 @@
        │
        ▼
 ┌─────────────┐
+│  DB_CHECK    │ [可选] 查库
+│  db-query    │ 了解数据现状
+│  (可选)      │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
 │  PRESENT     │ 展示分析方案
 │  等待用户    │ 等待确认
 │  确认        │
@@ -112,6 +119,8 @@
   ├─ 2. yili-code-fix.analyze(context)
   │     → 遗漏清单 + 前后端分类
   │
+  ├─ 2a. [可选] db-query.check-data → 查库了解数据现状
+  │
   ├─ 3. 展示分析方案 → ⏸️ 等待确认
   │
   ├─ 4a. [前端] → coding-bug-ops.add-comment("前端问题...")
@@ -147,6 +156,7 @@
 |------|------|
 | PENDING | 等待处理 |
 | ANALYZING | 正在分析 |
+| DB_CHECKING | [可选] 正在查询数据库 |
 | WAITING_CONFIRM | 等待用户确认 |
 | FIXING | 正在修复 |
 | COMPILING | 正在编译 |
