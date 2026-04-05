@@ -87,14 +87,29 @@ npx playwright install       # 安装 Playwright 浏览器
 
 - `bug-fix-pipeline` 中的 SIT 页面打开、Bug 复现、关键按钮点击、截图存证
 - 不依赖本机真实 Chrome Profile 的标准验证流程
+- 如果在 Codex/macOS 下运行，优先使用 `$HOME/.agents/skills/agent-browser/scripts/agent-browser-codex.sh`，不要直接走 `npx -y agent-browser`
+
+Codex/macOS 额外说明:
+
+- 该环境里 `node -p 'process.arch'` 可能是 `arm64`，而 shell 实际跑在 `x86_64/i386`
+- `agent-browser` 的 `npx` 包装层按 Node 架构选 native binary，可能因此选错并表现为无输出
+- 快速自检:
+
+```bash
+AGENT_BROWSER_CODEX_HELPER="${AGENT_BROWSER_CODEX_HELPER:-$HOME/.agents/skills/agent-browser/scripts/agent-browser-codex.sh}"
+bash "$AGENT_BROWSER_CODEX_HELPER" doctor
+```
+
+- 如果 `~/.agent-browser/<session>.log` 出现 `Failed to bind socket: Operation not permitted`，说明 daemon 被沙箱拦截，应立即提权，不要继续原地重试
 
 典型流程:
 
 ```bash
-agent-browser open "http://pri-fssc-web-sit.digitalyili.com/#/claim/T044"
-agent-browser wait --load networkidle
-agent-browser snapshot -i
-agent-browser screenshot sit-smoke-T044.png
+AGENT_BROWSER_CODEX_HELPER="${AGENT_BROWSER_CODEX_HELPER:-$HOME/.agents/skills/agent-browser/scripts/agent-browser-codex.sh}"
+bash "$AGENT_BROWSER_CODEX_HELPER" --session sitSmoke open "http://pri-fssc-web-sit.digitalyili.com/#/claim/T044"
+bash "$AGENT_BROWSER_CODEX_HELPER" --session sitSmoke wait --load networkidle
+bash "$AGENT_BROWSER_CODEX_HELPER" --session sitSmoke snapshot -i
+bash "$AGENT_BROWSER_CODEX_HELPER" --session sitSmoke screenshot sit-smoke-T044.png
 ```
 
 ### 2. `browser-use` 复用登录态（降级）
@@ -113,7 +128,7 @@ agent-browser screenshot sit-smoke-T044.png
 
 ## 认证策略
 
-当需要复用真实浏览器登录态时，按优先级依次尝试:
+当需要复用真实浏览器登录态时，按优先级依次尝试：
 
 ### 公共前置步骤：视口覆写
 
@@ -127,6 +142,22 @@ browser-use eval "
   window.dispatchEvent(new Event('resize'));
 "
 ```
+
+### 0. Chrome Debug 模式（最推荐，长期稳定）
+
+直接连接用户正在使用的 Chrome 浏览器实例，继承所有登录状态：
+
+```bash
+# 前提: 用户已以 Debug 端口启动 Chrome
+# /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+
+browser-use --connect open "http://pri-fssc-web-sit.digitalyili.com"
+# → 执行视口覆写（公共前置步骤）
+browser-use state
+# 检查是否在登录页 → 如果不是，认证成功
+```
+
+优势：无需 Cookie 提取/解密，无需密码存储，只要 Chrome 已登录就能用。
 
 ### 1. Cookie 文件导入（优先，最稳定）
 
@@ -276,7 +307,7 @@ python3 ai-spec/skills/code/front-end-skills/scripts/route-open.py T044
 
 ```bash
 # 1. 打开页面
-browser-use --profile "Default" open "<sit-url>/#/claim/T{XXX}"
+browser-use --connect open "<sit-url>/#/claim/T{XXX}"
 
 # 2. 等待加载
 browser-use wait selector "[class*=page], [class*=container]"
@@ -483,7 +514,7 @@ npx playwright show-report
 ## 强制约束
 
 1. **执行优先级**: `agent-browser` → `browser-use` → `playwright-e2e-testing`
-2. **认证优先级**: 在进入 `browser-use` 认证分支后，按 Cookie 文件 → Chrome Profile → 账号密码执行
+2. **认证优先级**: 在进入 `browser-use` 认证分支后，按 Chrome Debug (`--connect`) → Cookie 文件 → Chrome Profile → 账号密码执行
 3. **截图存证**: 每个关键步骤必须截图
 4. **不猜测路由**: 路由从代码或路由解析脚本推导，不要猜
 5. **超时处理**: 页面加载超时默认 60 秒

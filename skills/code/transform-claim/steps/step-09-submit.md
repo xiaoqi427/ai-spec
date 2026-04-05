@@ -294,7 +294,7 @@ ClaimValidationOrchestrator
 | `BondFundPaymentPlanValidator` | 210 | 质保金付款计划校验 | 质保金专用 |
 | `PaymentPlanAndInvoiceWriteOffAmountMatchValidator` | 420 | 付款计划与发票核销金额校验 | 付款计划与发票核销匹配 |
 | `PaymentPlanAndTaxAmountMatchValidator` | 420 | 付款计划与税金页签金额匹配校验（T059） | T059支付租金专用 |
-| `LineAndPaymentPlanAmountMatchValidator` | 430 | 明细行与付款计划金额匹配校验 | 明细行与付款计划匹配 |
+| `LineAndPaymentPlanAmountMatchValidator` | 430 | 明细行与付款计划金额匹配校验 | 仅 T059（初始直接费用/台账未生效前支付租金且预付款）与 T064 |
 | `PaymentPlanCalculationValidator` | 1256 | 付款计划-计算校验 | 付款计划计算校验 |
 | `PayChangeLineAmountValidator` | - | 付款变更行金额校验 | 付款变更行金额 |
 | `PaymentPlanConsistencyValidator` | - | 付款计划一致性校验 | 付款计划一致性 |

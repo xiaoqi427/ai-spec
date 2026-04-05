@@ -73,27 +73,42 @@ def get_chrome_encryption_key() -> Optional[bytes]:
     并使用 PBKDF2 派生 AES 密钥。
     """
     try:
-        result = subprocess.run(
-            [
+        candidates = [
+            ("Chrome Safe Storage", "Chrome"),
+            ("Chrome Safe Storage", "Google Chrome"),
+            ("Chrome Safe Storage", None),
+            ("Google Chrome Safe Storage", "Chrome"),
+            ("Google Chrome Safe Storage", "Google Chrome"),
+            ("Google Chrome Safe Storage", None),
+            ("Chromium Safe Storage", "Chromium"),
+            ("Chromium Safe Storage", None),
+        ]
+        chrome_password = ""
+        for service, account in candidates:
+            cmd = [
                 "security",
                 "find-generic-password",
                 "-w",
                 "-s",
-                "Chrome Safe Storage",
-                "-a",
-                "Chrome",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
+                service,
+            ]
+            if account:
+                cmd.extend(["-a", account])
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                chrome_password = result.stdout.strip()
+                break
+        if not chrome_password:
             log.debug("无法从 Keychain 获取 Chrome 密钥")
             return None
 
         import hashlib
 
-        chrome_password = result.stdout.strip()
         key = hashlib.pbkdf2_hmac(
             "sha1",
             chrome_password.encode("utf-8"),
@@ -107,7 +122,7 @@ def get_chrome_encryption_key() -> Optional[bytes]:
         return None
 
 
-def decrypt_chrome_cookie(encrypted_value: bytes, key: bytes) -> Optional[str]:
+def decrypt_chrome_cookie(encrypted_value: bytes, key: bytes, host_key: str = "") -> Optional[str]:
     """
     解密 Chrome macOS 加密的 Cookie 值。
     Chrome 使用 Keychain 密钥 + AES-CBC (iv = 16 空格) 加密。
@@ -131,6 +146,13 @@ def decrypt_chrome_cookie(encrypted_value: bytes, key: bytes) -> Optional[str]:
         padding_len = decrypted[-1]
         if 0 < padding_len <= 16:
             decrypted = decrypted[:-padding_len]
+        # Chrome 新版本会在明文前拼接 host_key 的 SHA256
+        if host_key:
+            import hashlib
+
+            host_key_hash = hashlib.sha256(host_key.encode("utf-8")).digest()
+            if decrypted.startswith(host_key_hash):
+                decrypted = decrypted[32:]
         return decrypted.decode("utf-8", errors="replace")
     except ImportError:
         pass
@@ -158,16 +180,40 @@ def decrypt_chrome_cookie(encrypted_value: bytes, key: bytes) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Chrome Cookie 提取
 # ---------------------------------------------------------------------------
+# Chrome samesite 值 → Playwright/browser-use 兼容字符串
+SAMESITE_MAP = {
+    -1: "Lax",    # 未指定，Chrome 默认 Lax
+    0: "None",
+    1: "Lax",
+    2: "Strict",
+}
+
+# Chrome epoch (1601-01-01) 到 Unix epoch (1970-01-01) 的微秒差
+CHROME_EPOCH_OFFSET = 11644473600
+
+# 认证关键 Cookie 名（至少应包含其中一个才算有效认证）
+AUTH_COOKIE_NAMES = {"login", "coding_login_token", "eid", "SESSION", "JSESSIONID", "CODING_TOKEN"}
+
+
+def _chrome_time_to_unix(chrome_us: int) -> float:
+    """将 Chrome 微秒时间戳转为 Unix 秒时间戳，0 表示会话 Cookie → 返回 -1"""
+    if chrome_us <= 0:
+        return -1
+    return (chrome_us / 1_000_000) - CHROME_EPOCH_OFFSET
+
+
 def extract_cookies(
     domain: str,
     profile: str = DEFAULT_PROFILE,
 ) -> list[dict]:
     """
     从 Chrome Cookie 数据库提取指定域名的 Cookie。
+    提取完整元数据（secure/httpOnly/sameSite/expires），
+    输出 Playwright/browser-use 兼容格式。
 
     :param domain: 目标域名（模糊匹配，如 coding.yili.com）
     :param profile: Chrome Profile 名称
-    :return: Cookie 列表 [{name, value, domain, path}]
+    :return: Cookie 列表 [{name, value, domain, path, secure, httpOnly, sameSite, expires}]
     """
     db_path = Path(
         str(CHROME_COOKIE_DB).replace("{profile}", profile)
@@ -178,10 +224,16 @@ def extract_cookies(
         return []
 
     # 复制到临时目录，避免 Chrome 锁定
+    # 同时复制 WAL/SHM 文件保证数据一致性
     tmp_dir = tempfile.mkdtemp()
     tmp_db = Path(tmp_dir) / "Cookies"
     try:
         shutil.copy2(db_path, tmp_db)
+        for ext in ["-wal", "-shm"]:
+            wal_path = Path(str(db_path) + ext)
+            if wal_path.exists():
+                shutil.copy2(wal_path, Path(str(tmp_db) + ext))
+                log.debug(f"已复制 {ext} 文件")
     except Exception as e:
         log.error(f"复制 Cookie 数据库失败: {e}")
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -191,9 +243,10 @@ def extract_cookies(
         conn = sqlite3.connect(str(tmp_db))
         cursor = conn.cursor()
 
-        # 查询匹配域名的 Cookie
+        # 查询匹配域名的 Cookie，包含完整元数据
         cursor.execute(
-            "SELECT name, value, encrypted_value, host_key, path "
+            "SELECT name, value, encrypted_value, host_key, path, "
+            "is_secure, is_httponly, samesite, expires_utc "
             "FROM cookies WHERE host_key LIKE ?",
             (f"%{domain}%",),
         )
@@ -218,17 +271,17 @@ def extract_cookies(
         if not encryption_key:
             log.warning("无法获取解密密钥，加密的 Cookie 将被跳过")
 
-    # 提取 Cookie
+    # 提取 Cookie（含完整元数据）
     cookies = []
     skipped = 0
-    for name, value, encrypted_value, host_key, path in rows:
+    for name, value, encrypted_value, host_key, path, is_secure, is_httponly, samesite, expires_utc in rows:
         cookie_val = None
 
         # 优先使用未加密的 value
         if value:
             cookie_val = value
         elif encrypted_value and encryption_key:
-            cookie_val = decrypt_chrome_cookie(encrypted_value, encryption_key)
+            cookie_val = decrypt_chrome_cookie(encrypted_value, encryption_key, host_key)
 
         if cookie_val:
             # 确保值只包含 ASCII 可打印字符
@@ -245,25 +298,52 @@ def extract_cookies(
                     "value": cookie_val,
                     "domain": host_key,
                     "path": path,
+                    "secure": bool(is_secure),
+                    "httpOnly": bool(is_httponly),
+                    "sameSite": SAMESITE_MAP.get(samesite, "Lax"),
+                    "expires": _chrome_time_to_unix(expires_utc),
                 }
             )
         else:
             skipped += 1
+            log.debug(f"  跳过无法解密的 Cookie: {name} ({host_key})")
 
     log.info(
         f"从 Chrome ({profile}) 提取了 {len(cookies)} 条 Cookie"
         + (f"，跳过 {skipped} 条无法解密" if skipped else "")
     )
+
+    # 验证是否提取到了关键认证 Cookie
+    extracted_names = {c["name"] for c in cookies}
+    auth_found = extracted_names & AUTH_COOKIE_NAMES
+    if auth_found:
+        log.info(f"  ✓ 认证 Cookie 已提取: {auth_found}")
+    else:
+        log.warning(
+            f"  ⚠ 未找到关键认证 Cookie ({AUTH_COOKIE_NAMES})\n"
+            f"  已提取的 Cookie: {extracted_names}\n"
+            f"  可能原因: Chrome 中未登录目标平台，或解密失败"
+        )
+
     return cookies
 
 
 def save_cookies(cookies: list[dict], output_path: Path) -> bool:
-    """保存 Cookie 到 JSON 文件（browser-use 兼容格式）"""
+    """保存 Cookie 到 JSON 文件（Playwright/browser-use 兼容格式）"""
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(cookies, f, indent=2, ensure_ascii=False)
-        log.info(f"Cookie 已保存到: {output_path}")
+        log.info(f"Cookie 已保存到: {output_path} ({len(cookies)} 条)")
+        # 打印关键 Cookie 摘要
+        for c in cookies:
+            flags = []
+            if c.get("secure"):
+                flags.append("Secure")
+            if c.get("httpOnly"):
+                flags.append("HttpOnly")
+            flag_str = f" [{', '.join(flags)}]" if flags else ""
+            log.debug(f"  {c['name']} ({c['domain']}){flag_str}")
         return True
     except Exception as e:
         log.error(f"Cookie 保存失败: {e}")

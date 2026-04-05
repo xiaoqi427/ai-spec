@@ -9,21 +9,33 @@ coding_url: https://yldc.coding.yili.com
 user_id: your_user_id
 user_display_name: 你的显示名
 
-# 认证方式0: Personal Access Token (推荐，Python 脚本首选)
+# ============================================================
+# 认证方式（按优先级从高到低排列）
+# ============================================================
+
+# 认证方式0: Chrome Debug 模式 (最推荐，长期稳定)
+# 先以调试端口启动 Chrome:
+#   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+# 然后在 Chrome 中登录 Coding 平台，browser-use 会通过 CDP 协议连接已有实例，
+# 自动继承所有登录态，无需 Cookie/SSO。
+chrome_debug_port: 9222
+
+# 认证方式1: Personal Access Token (推荐，Python 脚本首选)
 # Coding → 个人设置 → 访问令牌 → 新建令牌（勾选 project:issues 权限）
 # 用于 prefetch.py 脚本的 Open API 调用，无需浏览器
 personal_access_token: ""
 
-# 认证方式1: Chrome Profile 名称 (浏览器自动化优先)
+# 认证方式2: Chrome Profile 名称 (浏览器自动化)
 # 使用 browser-use profile list 查看可用 Profile
 chrome_profile: Default
 
-# 认证方式2: Cookie 文件路径 (降级方案)
+# 认证方式3: Cookie 文件路径 (降级方案)
 # 从浏览器导出 Cookie 后保存为 JSON 文件
 # 使用 browser-use cookies export coding-cookies.json 导出
+# 或使用 extract-chrome-cookies.py 从 Chrome 自动提取
 cookie_file: config/coding-cookies.json
 
-# 认证方式3: SSO 统一登录 (兜底方案)
+# 认证方式4: SSO 统一登录 (兜底方案)
 # Coding 登录页 → 点击 "SSO 统一登录" → 跳转 SSO 页面 → 输入以下账号密码
 sso_username: your_sso_username
 sso_password: your_sso_password

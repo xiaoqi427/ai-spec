@@ -92,6 +92,9 @@ Phase 5: 统一闭环 → CI 构建 + SIT 验证 + Coding 操作（评论+状态
 说明:
 
 - `bug-fix-pipeline` 中凡是"打开 SIT 页面、按步骤复现、截图存证、验证修复"这类浏览器任务，默认优先使用 `agent-browser`
+- 在 Codex/macOS 环境下，调用 `agent-browser` 时优先走 `$HOME/.agents/skills/agent-browser/scripts/agent-browser-codex.sh`
+- 原因是该环境可能出现 `node process.arch=arm64` 但 shell 运行在 `x86_64/i386` 的混合架构，`npx` 包装层会按 Node 架构挑错 native binary，表现为命令无有效输出
+- 如果 `~/.agent-browser/<session>.log` 中出现 `Failed to bind socket: Operation not permitted`，视为沙箱拦截 daemon socket，应立即提权
 - 只有在必须复用登录态、现有浏览器 Profile、Cookie 或沿用现成 CLI 脚本时，才退回 `browser-use`
 - 需要沉淀为正式可复跑回归脚本时，再使用 `playwright-e2e-testing`
 - 运行记忆与自改进采用**双轨兼容**:
@@ -391,6 +394,10 @@ python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py -
 
 **认证降级顺序**: PAT → Cookie 文件 → Chrome Cookie 提取 → SSO 登录
 
+> **Chrome Debug 模式** (浏览器自动化优先):
+> 当 Phase 1 用浏览器采集时，优先用 `browser-use --connect` 连接用户的 Chrome Debug 实例，
+> 继承所有登录状态，无需 Cookie/SSO。前提：Chrome 已以 `--remote-debugging-port=9222` 启动。
+
 > **Chrome Cookie 提取**: 当 Cookie 文件不存在时，可自动从当前 Chrome 提取:
 > ```bash
 > python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/extract-chrome-cookies.py
@@ -422,8 +429,10 @@ python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py -
 ##### 1.2-1.6 批量采集
 
 ```bash
-# 1.2 打开浏览器登录 Coding
-browser-use --profile "Default" open "<filter-url>"
+# 1.2 打开浏览器登录 Coding（优先 Chrome Debug 模式）
+browser-use --connect open "<filter-url>"
+# 如果 --connect 失败，降级:
+# browser-use --profile "Default" open "<filter-url>"
 
 # 1.3 读取 Bug 列表
 coding-bug-ops.read-list(filter-url)
@@ -638,7 +647,7 @@ JDK 不是 21 → 立即终止，不进入修复循环。
       → unit_test: {verdict, total, passed, failed, skipped, compile_error: true/false}
       → data_verify: {verdict, checks, passed, compile_error: true/false}
       → commit_hash: "<本次 commit hash>" (仅 status=fixed 时)
-      → comment_draft: "【AI修复】..." (评论草稿，Phase 5 使用)
+      → comment_draft: "仅供参考：..." (评论草稿，Phase 5 使用)
       → skip_reason: "..." (失败跳过时记录失败原因)
 
   ⚠️ 任何步骤失败 → 记录 status + skip_reason → 自动跳到下一个 Bug
@@ -649,12 +658,12 @@ JDK 不是 21 → 立即终止，不进入修复循环。
 ```
   读取本地预采集数据
   → 确认前端问题分析
-  → 准备评论草稿: "【AI分析】前端问题, 对应老代码 xxx, 新框架不修改"
+  → 准备评论草稿: "【】前端问题, 对应老代码 xxx, 新框架不修改"
   → 查找前端负责人 (读取 fssc-schedule.xlsx)
   → 记录到 fix-queue.json.results[bug-id]:
     status: "tag-frontend"
     frontend_owner: "前端负责人"
-    comment_draft: "【AI分析】..."
+    comment_draft: "【】..."
   → 不操作 Coding，等 Phase 5 统一处理
 ```
 
@@ -766,6 +775,9 @@ SIT 验证结果更新到 fix-queue.json.results:
 
 ```
 打开 Coding 浏览器（认证降级顺序）:
+  0. 优先 Chrome Debug 模式
+     → browser-use --connect open <url>
+     → 成功则继承 Chrome 登录态，无需 Cookie
   1. 优先导入 config/coding-cookies.json（Phase 1 导出）
      → browser-use cookies import config/coding-cookies.json
      → 打开 Coding 页面，检查是否需要登录

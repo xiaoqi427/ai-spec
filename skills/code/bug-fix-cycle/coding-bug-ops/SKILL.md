@@ -172,6 +172,42 @@ browser-use wait text "缺陷"
 
 ### 认证降级顺序（按优先级依次尝试）
 
+#### 0. Chrome Debug 模式（最推荐，长期稳定）
+
+直接连接用户正在使用的 Chrome 浏览器实例，继承所有登录状态，**无需提取/导入 Cookie，无需 SSO 自动化**：
+
+**前置条件**: 用户以 Debug 端口启动 Chrome（只需做一次）：
+```bash
+# macOS 启动 Chrome（带远程调试端口）
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
+
+# 或添加 alias 到 ~/.zshrc（推荐）
+alias chrome-debug='/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222'
+```
+
+**连接方式**:
+```bash
+# 自动探测 Chrome CDP 端口（9222/9229）
+browser-use --connect open <url>
+
+# 或指定 CDP URL
+browser-use --cdp-url http://localhost:9222 open <url>
+```
+
+**优势**:
+- 复用用户真实 Chrome，所有 Cookie/localStorage/sessionStorage 自动继承
+- 不需要提取/解密 Cookie，不需要存密码
+- 不需要 SSO 自动化，不受 Coding 页面结构变化影响
+- 只要 Chrome 保持打开且已登录，长期稳定可用
+
+**检测逻辑**:
+```bash
+# 检测是否有 Chrome Debug 端口可用
+browser-use --connect open <url>
+# → 成功: 页面正常加载，不在 /login → 认证成功
+# → 失败: 连接拒绝或页面在 /login → 降级到策略 1
+```
+
 #### 1. Cookie 文件导入（优先，最稳定）
 
 从 Phase 1 导出的 Cookie 文件导入，无 DOM 交互，最稳定：
@@ -290,15 +326,17 @@ browser-use cookies export config/coding-cookies.json
 
 **认证降级完整流程**:
 ```
-Cookie 文件导入 → 验证
+Chrome Debug (--connect) → 验证
   ├─ 成功 → 继续操作
-  └─ 失败 → Chrome Cookie 提取 → Cookie 文件导入 → 验证
+  └─ 失败 → Cookie 文件导入 → 验证
               ├─ 成功 → 继续操作
-              └─ 失败 → Chrome Profile → 验证
-                          ├─ 成功 → 导出 Cookie → 继续操作
-                          └─ 失败 → SSO 登录 → 验证
+              └─ 失败 → Chrome Cookie 提取 → Cookie 文件导入 → 验证
+                          ├─ 成功 → 继续操作
+                          └─ 失败 → Chrome Profile → 验证
                                       ├─ 成功 → 导出 Cookie → 继续操作
-                                      └─ 重试(2次) → 失败 → ⏸️ 报告用户
+                                      └─ 失败 → SSO 登录 → 验证
+                                                  ├─ 成功 → 导出 Cookie → 继续操作
+                                                  └─ 重试(2次) → 失败 → ⏸️ 报告用户
 ```
 
 ---
@@ -318,8 +356,10 @@ https://yldc.coding.yili.com/p/fssc/bug-tracking/issues?filter=76fb2bfff014998ff
 **执行步骤**:
 
 ```bash
-# 1. 打开筛选器页面（使用 Chrome Profile 复用登录态）
-browser-use --profile "Default" open "<filter-url>"
+# 1. 打开筛选器页面（优先 Chrome Debug 模式，降级用 Profile）
+browser-use --connect open "<filter-url>"
+# 如果 --connect 失败，降级:
+# browser-use --profile "Default" open "<filter-url>"
 
 # 2. ⚠️ 视口覆写（防止移动端拦截）
 browser-use eval "
@@ -390,8 +430,8 @@ browser-use eval "
 **执行步骤**:
 
 ```bash
-# 1. 打开 Bug 详情页
-browser-use --profile "Default" open "https://yldc.coding.yili.com/p/fssc/bug-tracking/issues/<bug-id>/detail"
+# 1. 打开 Bug 详情页（优先 Chrome Debug 模式）
+browser-use --connect open "https://yldc.coding.yili.com/p/fssc/bug-tracking/issues/<bug-id>/detail"
 
 # 2. 等待详情页加载
 browser-use wait text "描述"
@@ -508,7 +548,7 @@ browser-use eval "
 
 ```bash
 # 1. 确保在 Bug 详情页（如果不在，先打开）
-browser-use --profile "Default" open "https://yldc.coding.yili.com/p/fssc/bug-tracking/issues/<bug-id>/detail"
+browser-use --connect open "https://yldc.coding.yili.com/p/fssc/bug-tracking/issues/<bug-id>/detail"
 
 # 2. 滚动到评论区
 browser-use scroll down
@@ -538,7 +578,7 @@ browser-use screenshot comment-submitted.png
 
 - 前端 Bug 标注:
   ```
-  【AI分析】前端问题
+  【】前端问题
   对应老代码: <文件路径> L<行号>
   遗漏逻辑: <简要描述>
   新框架不修改, 需前端开发处理
@@ -546,7 +586,7 @@ browser-use screenshot comment-submitted.png
 
 - 后端修复说明:
   ```
-  【AI修复】后端代码已修复
+  仅供参考： 后端代码已修复
   对应老代码: <文件路径> L<行号>
   修复文件: <新代码文件路径>
   修复内容: <简要描述>
@@ -633,8 +673,8 @@ browser-use screenshot status-updated.png
 **执行步骤**:
 
 ```bash
-# 1. 打开 Bug 详情页
-browser-use --profile "Default" open "https://yldc.coding.yili.com/p/fssc/bug-tracking/issues/<bug-id>/detail"
+# 1. 打开 Bug 详情页（优先 Chrome Debug 模式）
+browser-use --connect open "https://yldc.coding.yili.com/p/fssc/bug-tracking/issues/<bug-id>/detail"
 
 # 2. 视口覆写
 browser-use eval "
@@ -784,7 +824,7 @@ read-comments (获取所有评论，含关键补充信息)
 
 ## 强制约束
 
-1. **认证优先级**: 先选可用 CLI（优先 `browser-use`，否则 `agent-browser`），再按 Cookie 文件 → Chrome Profile → SSO 统一登录的顺序尝试认证
+1. **认证优先级**: 先选可用 CLI（优先 `browser-use`，否则 `agent-browser`），再按 Chrome Debug (`--connect`) → Cookie 文件 → Chrome Cookie 提取 → Chrome Profile → SSO 统一登录的顺序尝试认证
 2. **视口覆写**: 每次打开 Coding 页面后必须执行视口覆写（innerWidth=1920），防止移动端拦截
 3. **不能只看描述**: 读取 Bug 时必须同时读评论，评论中经常有关键信息
 4. **JS 选择器可能失效**: Coding 平台使用动态渲染，选择器可能需要根据实际页面调整

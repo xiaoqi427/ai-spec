@@ -80,7 +80,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[5]
 
 CONFIG_PATH = PROJECT_ROOT / "ai-spec/skills/code/bug-fix-cycle/coding-bug-ops/config/coding-auth.yaml"
-COOKIE_PATH = PROJECT_ROOT / "ai-spec/skills/code/bug-fix-cycle/coding-bug-ops/config/coding-cookies.json"
+# Cookie 文件默认路径 — 与 coding-auth.yaml 中 cookie_file 保持一致
+COOKIE_PATH = PROJECT_ROOT / "config/coding-cookies.json"
 OUTPUT_DIR = PROJECT_ROOT / "yili-out/bug-prefetch"
 
 # Coding 项目标识
@@ -126,7 +127,8 @@ class Config:
         self.user_id: str = data.get("user_id", "")
         self.user_display_name: str = data.get("user_display_name", "")
         self.personal_access_token: str = data.get("personal_access_token", "")
-        self.cookie_file: str = data.get("cookie_file", "")
+        self.cookie_file: str = data.get("cookie_file", "config/coding-cookies.json")
+        self.chrome_profile: str = data.get("chrome_profile", "Default")
         self.sso_username: str = data.get("sso_username", "")
         self.sso_password: str = data.get("sso_password", "")
 
@@ -197,7 +199,7 @@ class CodingClient:
         # 策略3: 从 Chrome 浏览器提取 Cookie（macOS）
         if HAS_SQLITE:
             log.info("尝试从 Chrome 浏览器提取 Cookie...")
-            chrome_profile = self.config.chrome_profile if hasattr(self.config, 'chrome_profile') else "Default"
+            chrome_profile = self.config.chrome_profile
             if self._load_chrome_cookies(chrome_profile):
                 if self._verify_auth_internal_api():
                     self._auth_method = "Chrome"
@@ -272,15 +274,19 @@ class CodingClient:
             return False
 
         try:
-            # 复制到临时文件（避免 Chrome 锁定）
+            # 复制到临时文件（避免 Chrome 锁定），同时复制 WAL/SHM 保证一致性
             tmp_dir = tempfile.mkdtemp()
             tmp_db = Path(tmp_dir) / "Cookies"
             shutil.copy2(chrome_cookie_path, tmp_db)
+            for ext in ["-wal", "-shm"]:
+                wal_path = Path(str(chrome_cookie_path) + ext)
+                if wal_path.exists():
+                    shutil.copy2(wal_path, Path(str(tmp_db) + ext))
 
             conn = sqlite3.connect(str(tmp_db))
             cursor = conn.cursor()
 
-            # 查询 Coding 域名的 Cookie
+            # 查询 Coding 域名的 Cookie（含完整元数据）
             coding_domain = urlparse(self.config.coding_url).hostname
             cursor.execute(
                 "SELECT name, value, encrypted_value, host_key, path "
@@ -305,7 +311,7 @@ class CodingClient:
                     cookie_val = value
                 elif encrypted_value:
                     # Chrome 80+ 加密 Cookie，尝试使用 macOS Keychain 解密
-                    cookie_val = self._decrypt_chrome_cookie(encrypted_value)
+                    cookie_val = self._decrypt_chrome_cookie(encrypted_value, host_key)
 
                 if cookie_val:
                     # 确保 Cookie 值只包含 ASCII 可打印字符（requests 要求 latin-1 编码）
@@ -325,7 +331,7 @@ class CodingClient:
             log.warning(f"  Chrome Cookie 读取失败: {e}")
             return False
 
-    def _decrypt_chrome_cookie(self, encrypted_value: bytes) -> Optional[str]:
+    def _decrypt_chrome_cookie(self, encrypted_value: bytes, host_key: str = "") -> Optional[str]:
         """
         解密 Chrome macOS 加密的 Cookie。
         Chrome 使用 Keychain 中的密钥 + AES-CBC 加密。
@@ -337,14 +343,32 @@ class CodingClient:
 
             # macOS 使用 Keychain 存储密钥
             import subprocess
-            result = subprocess.run(
-                ["security", "find-generic-password", "-w", "-s", "Chrome Safe Storage", "-a", "Chrome"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode != 0:
+            candidates = [
+                ("Chrome Safe Storage", "Chrome"),
+                ("Chrome Safe Storage", "Google Chrome"),
+                ("Chrome Safe Storage", None),
+                ("Google Chrome Safe Storage", "Chrome"),
+                ("Google Chrome Safe Storage", "Google Chrome"),
+                ("Google Chrome Safe Storage", None),
+                ("Chromium Safe Storage", "Chromium"),
+                ("Chromium Safe Storage", None),
+            ]
+            chrome_password = ""
+            for service, account in candidates:
+                cmd = ["security", "find-generic-password", "-w", "-s", service]
+                if account:
+                    cmd.extend(["-a", account])
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    chrome_password = result.stdout.strip()
+                    break
+            if not chrome_password:
                 return None
-
-            chrome_password = result.stdout.strip()
 
             # 使用 PBKDF2 派生密钥
             import hashlib
@@ -371,6 +395,11 @@ class CodingClient:
                 padding_len = decrypted[-1]
                 if 0 < padding_len <= 16:
                     decrypted = decrypted[:-padding_len]
+                # Chrome 新版本会在明文前拼接 host_key 的 SHA256
+                if host_key:
+                    host_key_hash = hashlib.sha256(host_key.encode("utf-8")).digest()
+                    if decrypted.startswith(host_key_hash):
+                        decrypted = decrypted[32:]
                 return decrypted.decode("utf-8", errors="replace")
             except ImportError:
                 log.debug("  需要 cryptography 库来解密 Chrome Cookie: pip3 install cryptography --user --break-system-packages")
