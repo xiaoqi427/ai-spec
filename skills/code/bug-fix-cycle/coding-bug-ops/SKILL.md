@@ -1,14 +1,22 @@
 ---
 name: coding-bug-ops
-description: 操作 Coding 平台 Bug 跟踪系统，读取 Bug 列表、详情、评论，添加评论和更新状态。基于 browser-use 或 agent-browser CLI 实现浏览器自动化操作。当用户需要查询 Coding Bug、读取 Bug 详情和评论、添加修复备注、更新 Bug 状态时使用。
-allowed-tools: Bash(browser-use:*), Bash(agent-browser:*)
+description: 操作 Coding 平台 Bug 跟踪系统，读取 Bug 列表、详情、评论，添加评论和更新状态。优先基于 Playwright 无头模式执行稳定的浏览器自动化，必要时降级到 browser-use 或 agent-browser。当用户需要查询 Coding Bug、读取 Bug 详情和评论、添加修复备注、更新 Bug 状态时使用。
+allowed-tools: Bash(browser-use:*), Bash(agent-browser:*), Bash(npx:playwright), Bash(node:*), Bash(python3:*)
 ---
 # Coding Bug Ops (Coding 平台 Bug 操作)
 @author: sevenxiao
 
 ## 概述
 
-此 skill 专注于操作 **Coding 平台** 的 Bug 跟踪系统，提供 8 大核心能力：
+此 skill 专注于操作 **Coding 平台** 的 Bug 跟踪系统，提供 8 大核心能力。
+
+默认浏览器执行策略改为:
+
+1. 优先使用 **Playwright 无头模式**，适合稳定读取列表、详情、评论和执行表单操作
+2. 当需要复用现有 CLI 工作流、Chrome Debug、Profile 或 Cookie 导入能力时，降级到 `browser-use`
+3. 当 `browser-use` 不可用但需要临时页面交互时，再降级到 `agent-browser`
+
+核心能力如下：
 
 1. **`read-list`** 从 Bug 筛选器页面读取 Bug 列表
 2. **`read-detail`** 读取单个 Bug 的完整详情（标题、描述、字段）
@@ -23,20 +31,58 @@ allowed-tools: Bash(browser-use:*), Bash(agent-browser:*)
 
 | 外部 Skill | 安装命令 | 说明 |
 |------------|----------|------|
+| `Playwright` | 在本地项目目录执行 `npx playwright install` | 默认首选。使用无头模式读取页面、执行点击/输入、等待加载，稳定性高于内嵌浏览器 CLI |
 | `browser-use` | `npx openskills add browser-use/browser-use@browser-use` | 浏览器自动化 CLI, 安装位置: `.agents/skills/browser-use/` |
 | `agent-browser` | 由环境预装或单独安装 | 浏览器自动化 CLI，适合已安装 `agent-browser` 命令的环境 |
 
-优先使用当前环境里实际可用的 CLI:
+安装后先完成本地 Playwright 浏览器安装：
 
-1. 如果 `browser-use` 可用，优先用 `browser-use`
-2. 如果 `browser-use` 不可用但 `agent-browser` 可用，自动降级到 `agent-browser`
-3. 两者都不可用时，再提示用户安装或提供页面截图
+```bash
+cd /Users/xiaoqi/Documents/work/yili/fssc-web
+npx playwright install
+```
+
+如果当前目录没有 `playwright` 依赖，先切到带有 `package.json` 且已安装 `playwright` / `@playwright/test` 的前端目录再执行。
+
+优先使用当前环境里实际可用的工具链：
+
+1. 如果本地 `Playwright` 可用，优先用 `Playwright` 无头模式
+2. 如果 `Playwright` 不可用但 `browser-use` 可用，降级到 `browser-use`
+3. 如果 `browser-use` 不可用但 `agent-browser` 可用，自动降级到 `agent-browser`
+4. 三者都不可用时，再提示用户安装或提供页面截图
 
 安装后执行 `browser-use doctor` 验证环境；若使用 `agent-browser`，至少先确认 `agent-browser open <url>` 和 `agent-browser snapshot -i` 可正常运行。
 
+## Playwright 无头模式约定
+
+当任务是读取列表、详情、评论、活动，或进行稳定的评论/状态更新时，默认先尝试 `Playwright` 无头模式：
+
+```bash
+cd /Users/xiaoqi/Documents/work/yili/fssc-web
+npx playwright install
+node -e "
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  await page.goto(process.argv[1], { waitUntil: 'domcontentloaded' });
+  console.log(await page.title());
+  await browser.close();
+})().catch(err => { console.error(err); process.exit(1); });
+" https://yldc.coding.yili.com/p/fssc/bug-tracking/issues
+```
+
+执行要求：
+
+1. 默认 `headless: true`
+2. 默认视口至少 `1920x1080`，避免触发 Coding 的移动端拦截
+3. 首次在本机执行前，必须先安装 Playwright 浏览器二进制
+4. 如果需要复用登录态，优先使用已有 `storageState`、Cookie 转换文件或 Chrome Debug；不要把账号密码硬编码进脚本
+5. 只有在 Playwright 被环境阻塞、登录态无法复用或当前任务明显更适合 CLI 时，才切到 `browser-use / agent-browser`
+
 ## CLI 兼容规则
 
-下文步骤默认用 `browser-use` 写示例；执行时如果环境只有 `agent-browser`，按下面映射替换，不要因为示例命令不同就中断流程。
+下文步骤默认仍用 `browser-use` 写示例，便于复用现有流程说明；但真实执行时优先用 `Playwright` 无头模式实现同等动作。只有 `Playwright` 不可用或不适合时，才按下面映射退回 CLI，不要因为示例命令不同就中断流程。
 
 | 能力 | `browser-use` | `agent-browser` |
 |------|---------------|-----------------|

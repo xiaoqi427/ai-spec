@@ -685,3 +685,4 @@ npx playwright test tests/smoke/t044-smoke.spec.ts
 - 前端 skill: `ai-spec/skills/code/front-end-skills/SKILL.md`
 - 浏览器测试模式: `ai-spec/skills/code/front-end-skills/references/browser-test-patterns.md`
 - Playwright 配置: `fssc-web/playwright.config.ts`
+- 先安装npx playwright install

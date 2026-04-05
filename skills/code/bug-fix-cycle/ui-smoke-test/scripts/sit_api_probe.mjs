@@ -76,10 +76,12 @@ async function loadPlaywrightRequest() {
   for (const candidate of candidates) {
     try {
       if (candidate === "playwright") {
-        return await import(candidate);
+        const mod = await import(candidate);
+        return mod.default ?? mod;
       }
       if (fs.existsSync(candidate)) {
-        return await import(pathToFileURL(candidate).href);
+        const mod = await import(pathToFileURL(candidate).href);
+        return mod.default ?? mod;
       }
     } catch {
       // Try the next candidate.
@@ -133,7 +135,8 @@ async function main() {
     }
   }
 
-  const { request } = await loadPlaywrightRequest();
+  const playwright = await loadPlaywrightRequest();
+  const { request } = playwright;
   const api = await request.newContext({
     baseURL: args.baseUrl,
     storageState: args.state,

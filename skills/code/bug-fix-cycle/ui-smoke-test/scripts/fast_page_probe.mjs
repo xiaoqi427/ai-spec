@@ -64,10 +64,12 @@ async function loadPlaywright() {
   for (const candidate of candidates) {
     try {
       if (candidate === "playwright") {
-        return await import(candidate);
+        const mod = await import(candidate);
+        return mod.default ?? mod;
       }
       if (fs.existsSync(candidate)) {
-        return await import(pathToFileURL(candidate).href);
+        const mod = await import(pathToFileURL(candidate).href);
+        return mod.default ?? mod;
       }
     } catch {
       // Try next.
@@ -75,6 +77,31 @@ async function loadPlaywright() {
   }
 
   throw new Error("Playwright module not found. Set PLAYWRIGHT_MODULE_PATH if needed.");
+}
+
+async function launchWithFallback(playwright) {
+  const browserType = playwright.chromium || playwright.default?.chromium;
+  if (!browserType) {
+    throw new Error("Playwright chromium launcher is unavailable.");
+  }
+
+  const launchOptions = {
+    headless: true,
+    args: ["--disable-gpu", "--blink-settings=imagesEnabled=false"],
+  };
+
+  try {
+    return await browserType.launch(launchOptions);
+  } catch (error) {
+    const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    if (fs.existsSync(chromePath)) {
+      return browserType.launch({
+        ...launchOptions,
+        executablePath: chromePath,
+      });
+    }
+    throw error;
+  }
 }
 
 function detectAuthExpired(text) {
@@ -95,11 +122,8 @@ async function main() {
     }
   }
 
-  const { chromium } = await loadPlaywright();
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--disable-gpu", "--blink-settings=imagesEnabled=false"],
-  });
+  const playwright = await loadPlaywright();
+  const browser = await launchWithFallback(playwright);
 
   try {
     const context = await browser.newContext({
