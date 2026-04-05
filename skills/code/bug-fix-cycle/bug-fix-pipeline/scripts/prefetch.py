@@ -23,8 +23,13 @@ Phase 1 预采集 Python 脚本 — 并行获取 Coding Bug 信息
 
 认证方式（按优先级）:
   1. Personal Access Token (coding-auth.yaml 中 personal_access_token 字段)
-  2. Cookie 文件 (config/coding-cookies.json，由 browser-use 导出)
-  3. 交互式 SSO 登录（自动获取 session）
+  2. Cookie 文件 (config/coding-cookies.json，由 browser-use 导出或 extract-chrome-cookies.py 提取)
+  3. Chrome Cookie 提取 (直接读取 macOS Chrome Cookie 数据库，自动解密)
+  4. SSO 登录（自动获取 session）
+
+提示: 可单独使用 extract-chrome-cookies.py 从 Chrome 提取 Cookie:
+  python3 extract-chrome-cookies.py  # 提取 Coding Cookie
+  python3 extract-chrome-cookies.py --domain pri-fssc-web-sit.digitalyili.com --output config/sit-cookies.json  # 提取 SIT Cookie
 
 依赖:
   pip3 install requests pyyaml --user --break-system-packages
