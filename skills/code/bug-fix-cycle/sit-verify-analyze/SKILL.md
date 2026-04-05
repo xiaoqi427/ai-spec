@@ -277,7 +277,7 @@ browser-use screenshot sit-verify-result.png
 
 ```
 bug-fix-pipeline
-  └─ Step 2.9: sit-smoke-test → SIT 验证
+  └─ Step 2.9: ui-smoke-test → SIT 验证
   └─ Step 2.10: sit-verify-analyze → 分析结果
       ├─ 通过 → 更新状态 + 转派发起人 → Step 2.11 记录结果
       ├─ 前端问题 → 添加评论 + 转派前端 → Step 2.11 记录结果
@@ -300,7 +300,7 @@ bug-fix-pipeline
 ## 参考
 
 - Coding 操作: `ai-spec/skills/code/coding-bug-ops/SKILL.md`
-- SIT 测试: `ai-spec/skills/code/sit-smoke-test/SKILL.md`
+- SIT 测试: `ai-spec/skills/code/bug-fix-cycle/ui-smoke-test/SKILL.md`
 - 代码修复: `ai-spec/skills/code/yili-code-fix/SKILL.md`
 - 本地测试: `ai-spec/skills/code/local-api-test/SKILL.md`
 - 数据库查询: `ai-spec/skills/code/bug-fix-cycle/db-query/SKILL.md`

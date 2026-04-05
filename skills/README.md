@@ -46,7 +46,7 @@
   安全提交与 push
 - `coding-ci-deploy`
   Coding CI 发布到 SIT
-- `sit-smoke-test`
+- `ui-smoke-test`
   SIT 冒烟与场景验证
 - `sit-verify-analyze`
   SIT 验证后归因与路由

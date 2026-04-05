@@ -345,7 +345,7 @@ P4_DONE
   ▼
 ┌─────────────┐
 │  P5_SIT      │ [可选] SIT 验证
-│  (可选)      │ sit-smoke-test + sit-verify-analyze
+│  (可选)      │ ui-smoke-test + sit-verify-analyze
 └──────┬──────┘
        │
        ▼

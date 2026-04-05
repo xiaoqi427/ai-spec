@@ -755,7 +755,7 @@ coding-ci-deploy
 
 ```
 对 fix-queue.results 中 status=fixed 的每个 Bug:
-  sit-smoke-test → SIT 冒烟测试 + 截图
+  ui-smoke-test → SIT 冒烟测试 + 截图
   sit-verify-analyze → 分析验证结果
     ├─ [全部通过]         → 标记为修复成功
     ├─ [API正确+页面错误]  → 标记为前端问题
