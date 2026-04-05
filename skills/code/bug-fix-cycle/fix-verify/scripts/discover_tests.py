@@ -323,7 +323,7 @@ def main():
             for module in modules:
                 module_tests = [t['test_class'] for t in result['discovered_tests'] if t['module'] == module]
                 tests_str = ','.join(module_tests)
-                print(f"mvn test -pl {module} -Dtest={tests_str} -DskipTests=false -Dmaven.test.skip=false -T 1C")
+                print(f"mvn test -pl {module} -Dtest={tests_str} -DskipTests=false -Dmaven.test.skip=false -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository -T 1C")
 
 
 if __name__ == '__main__':

@@ -142,10 +142,24 @@
 
 ## Phase 3: 批量修复状态机
 
+> **核心原则**: 批量模式全程持续执行，不中途暂停。遇到任何问题记录后跳过，继续处理下一个 Bug。
+
 ```
 ┌─────────────┐
+│  P3_ENV_CHK  │ 检查 JDK 版本
+│  java -ver   │ 必须为 21
+└──────┬──────┘
+       │
+  ┌────┴────┐
+  │         │
+  ▼         ▼
+ =21      ≠21
+  │         │
+  │         └──▶ ❌ 立即终止，提示切换 JDK
+  ▼
+┌─────────────┐
 │  P3_LOAD     │ 读取 fix-queue.json
-│              │ 读取 mode (offline/interactive)
+│              │ 模式: continuous (持续执行)
 └──────┬──────┘
        │
        ▼
@@ -168,11 +182,11 @@ action=fix     action=tag     action=skip
   ▼
 ┌──────────────────┐
 │P3_PARALLEL_ANALYZE│ 并行分析 (fork → join)
-│                  │
-│  ┌───┐ ┌───┐ ┌──┴──┐
-│  │ A │ │ B │ │  C  │
-│  │分析│ │用例│ │查库 │
-│  └─┬─┘ └─┬─┘ └──┬──┘
+│                  │         ┌──────────────┐
+│  ┌───┐ ┌───┐ ┌──┴──┐     │ 分析失败     │
+│  │ A │ │ B │ │  C  │     │ → 记录跳过   │
+│  │分析│ │用例│ │查库 │────▶│ → P3_NEXT    │
+│  └─┬─┘ └─┬─┘ └──┬──┘     └──────────────┘
 │    └──┬───┘──────┘
 │       ▼ join
 │  合并分析结果
@@ -180,62 +194,80 @@ action=fix     action=tag     action=skip
        │
        ▼
 ┌─────────────┐
-│  P3_PRESENT  │ 展示分析方案
+│  P3_PRESENT  │ 展示分析方案 (仅输出，不等待确认)
+│  自动继续    │
 └──────┬──────┘
-       │
-  ┌────┴──────────────┐
-  │                    │
-  ▼                    ▼
-mode=interactive   mode=offline
-  │                    │
-  ▼                    │
-⏸️ 等待确认           │
-  │                    │
-  ┌────┴────┐          │
-  │         │          │
-  ▼         ▼          │
-确认      跳过         │
-  │         │          │
-  │    记录跳过→P3_NEXT│
-  │                    │
-  └────────┬───────────┘
-           │ 自动继续
-           ▼
-┌─────────────┐
-│  P3_FIX      │ yili-code-fix.fix
-│  执行修复    │
-└──────┬──────┘
+       │ 直接继续
+       ▼
+┌─────────────┐       ┌──────────────┐
+│  P3_FIX      │──────▶│ 修复失败     │
+│  执行修复    │       │ → 记录跳过   │
+│              │       │ → P3_NEXT    │
+└──────┬──────┘       └──────────────┘
        │
        ▼
-┌─────────────┐
-│  P3_COMPILE  │ mvn compile
-│  编译验证    │
-└──────┬──────┘
+┌──────────────┐
+│  P3_COMPILE   │ mvn compile -Dmaven.repo.local=...
+│  编译验证     │
+└──────┬───────┘
        │
   ┌────┴────┐
   │         │
   ▼         ▼
 通过      失败
   │         │
-  │         └──▶ 重试(最多3次) ──▶ 失败则标注
+  │         └──▶ 自动修复重试(最多3次)
+  │                    │
+  │               ┌────┴────┐
+  │               │         │
+  │               ▼         ▼
+  │             通过      仍失败
+  │               │         │
+  │               │         ▼
+  │               │  ┌────────────────┐
+  │               │  │P3_DEP_RESOLVE   │ AI 判定编译错误
+  │               │  │                │
+  │               │  │ 是依赖问题?     │
+  │               │  └──────┬─────────┘
+  │               │    ┌────┴────┐
+  │               │    │         │
+  │               │    ▼         ▼
+  │               │   是        否(代码问题)
+  │               │    │         │
+  │               │    ▼         └──▶ 记录失败
+  │               │  mvn install      → P3_NEXT
+  │               │  -pl <依赖模块>
+  │               │    │
+  │               │    ▼
+  │               │  重新编译当前模块
+  │               │    │
+  │               │  ┌─┴──┐
+  │               │  │    │
+  │               │  ▼    ▼
+  │               │ 通过  仍失败
+  │               │  │     │
+  │               │  │     └──▶ 记录失败 → P3_NEXT
+  │               │  │
+  │               └──┘
   │
   ▼
 ┌──────────────────┐
 │P3_PARALLEL_VERIFY │ [可选] 并行验证 (fork → join)
 │                  │
-│  ┌─────┐ ┌─────┐│
-│  │  A  │ │  B  ││
-│  │单测 │ │数据 ││
-│  └──┬──┘ └──┬──┘│
-│     └───┬───┘   │
-│         ▼ join  │
-│  合并验证结果   │
+│  ┌─────┐ ┌─────┐│     ┌──────────────────┐
+│  │  A  │ │  B  ││     │ 验证编译不通过?   │
+│  │单测 │ │数据 ││────▶│ → AI判定依赖问题  │
+│  └──┬──┘ └──┬──┘│     │ → 尝试安装依赖    │
+│     └───┬───┘   │     │ → 重试验证        │
+│         ▼ join  │     │ → 仍失败则记录跳过│
+│  合并验证结果   │     └──────────────────┘
+│  (失败不阻塞)  │
 └──────┬──────────┘
-       │
+       │ 记录 verdict，继续
        ▼
 ┌─────────────┐
 │  P3_TEST     │ [可选] local-api-test
-│  本地测试    │
+│  本地测试    │ (失败记录，不阻塞)
 └──────┬──────┘
        │
        ▼
@@ -251,7 +283,7 @@ mode=interactive   mode=offline
 └──────┬──────┘
        │
        ▼
-记录修复结果
+记录修复结果 (含所有失败/跳过信息)
   │
   └──▶ P3_NEXT (下一个 Bug)
 ```
@@ -377,8 +409,10 @@ status=fixed   status=tag     status=skipped
   │   ├─ 4a. [前端] → 准备评论草稿 + 查找前端负责人
   │   │
   │   ├─ 4b. [后端] → yili-code-fix.fix(context)
-  │   │               → mvn compile
+  │   │               → mvn compile -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository
+  │   │               → 编译失败: AI判定依赖问题→安装依赖→重试
   │   │               → [可选] fix-verify (单元测试 + 数据验证)
+  │   │               → 验证编译不通过: AI判定依赖→安装→重试
   │   │               → [可选] local-api-test
   │   │               → git commit (本地提交)
   │   │
@@ -413,9 +447,10 @@ status=fixed   status=tag     status=skipped
   │   ├─ ⏸️ 用户调整优先级/标记跳过
   │   └─ 生成 fix-queue.json
   │
-  ├─ Phase 3: 批量修复
+  ├─ Phase 3: 批量修复 (continuous 模式，全程不中断)
   │   └─ for each bug in fix-queue (按 priority):
-  │       └─ 并行分析 → [确认(offline跳过)] → 修复 → 编译 → [并行验证] → [接口测试] → commit → 复盘
+  │       └─ 并行分析 → 展示方案(不等待) → 修复 → 编译(含依赖智能处理) → [并行验证] → [接口测试] → commit → 复盘
+  │       └─ 任何步骤失败 → 记录问题 → 跳到下一个 Bug
   │
   ├─ Phase 4: 统一推送
   │   └─ git pull --rebase + push
@@ -435,8 +470,10 @@ status=fixed   status=tag     status=skipped
 
 | 模式 | auto_confirm | 用户确认 (P3_PRESENT) | 适用场景 |
 |------|-------------|----------------------|---------|
-| `offline` | true | 自动跳过 | 批量修复、无人值守 |
-| `interactive` | false | ⏸️ 必须等待 | 逐个审查、首次修复 |
+| `continuous` | true | 仅展示，不等待 | 批量修复、无人值守，问题记录跳过 |
+| `interactive` | false | ⏸️ 必须等待 | 单 Bug 模式、逐个审查 |
+
+> **批量模式默认使用 `continuous`**：全程持续执行，遇到问题（编译失败、修复失败、测试失败等）记录后自动跳过，不中断流程。
 
 ### Phase 级别状态
 
@@ -452,11 +489,13 @@ status=fixed   status=tag     status=skipped
 | P2_CLASSIFY | 正在初步分类 |
 | P2_PRESENT | 等待用户确认分诊结果 |
 | P2_DONE | 分诊完成 |
+| P3_ENV_CHK | 检查 JDK 版本（必须为 21），不是 21 则立即终止 |
 | P3_LOAD | 正在加载修复队列 |
 | P3_PARALLEL_ANALYZE | 正在并行分析 (fork: analyze + test-case + db-query) |
-| P3_PRESENT | 展示分析方案（offline 自动跳过确认） |
+| P3_PRESENT | 展示分析方案（仅输出，不等待确认） |
 | P3_FIX | 正在修复 |
 | P3_COMPILE | 正在编译 |
+| P3_DEP_RESOLVE | AI 判定编译错误，尝试安装依赖模块后重新编译 |
 | P3_PARALLEL_VERIFY | [可选] 正在并行验证 (fork: unit-test + data-verify) |
 | P3_TEST | 正在本地测试 |
 | P3_COMMIT | 正在 git commit |
@@ -480,11 +519,15 @@ status=fixed   status=tag     status=skipped
 |------|------|
 | queued | 在修复队列中等待 |
 | analyzing | 正在分析 |
-| waiting_confirm | 等待用户确认 |
+| analyze_failed | 分析失败，已记录跳过 |
 | fixing | 正在修复 |
+| fix_failed | 修复失败，已记录跳过 |
 | compiling | 正在编译 |
+| dep_resolving | AI 判定依赖问题，正在安装依赖模块 |
+| compile_failed | 编译失败（含依赖处理后仍失败），已记录跳过 |
 | unit_testing | 正在运行单元测试 |
 | data_verifying | 正在执行数据验证 |
+| verify_compile_failed | 验证阶段编译不通过，AI 判定后跳过 |
 | testing | 正在本地测试 |
 | fixed | 修复+编译通过，待 commit |
 | tag-frontend | 标记为前端问题，待 Phase 5 操作 |
@@ -509,17 +552,24 @@ status=fixed   status=tag     status=skipped
 
 ## 错误处理策略
 
+> **批量模式核心原则**: 所有错误记录后跳过，不中断流程。
+
 | 错误类型 | 发生阶段 | 处理方式 |
 |----------|---------|---------|
+| JDK 版本不是 21 | Phase 3 开始前 | **立即终止**，提示用户切换 JDK 21 |
 | 浏览器认证失败 | Phase 1/5 | 降级认证策略 (Cookie 文件 → Profile → SSO) |
 | Cookie 导入失败 | Phase 5 | Cookie 文件不存在或过期 → 降级到 Profile → SSO |
 | Bug 详情读取失败 | Phase 1 | 重试1次，失败则跳过并记录，不阻塞其他 Bug |
-| 老代码定位失败 | Phase 3 | 报告给用户，等待手动指定 |
-| 新代码定位失败 | Phase 3 | 报告给用户，可能未迁移 |
-| 编译失败 | Phase 3 | 自动修复重试3次，失败则标注 |
-| 本地测试失败 | Phase 3 | 记录失败，不阻塞后续 Bug |
-| 单元测试失败 | Phase 3 | 报告 verdict 给用户，不自动阻塞 git commit |
-| 数据验证失败 | Phase 3 | 报告给用户，不自动阻塞（db-query 连接失败则跳过） |
+| 分析失败 | Phase 3 | 记录失败原因，跳到下一个 Bug |
+| 老代码定位失败 | Phase 3 | 记录失败原因，跳到下一个 Bug |
+| 新代码定位失败 | Phase 3 | 记录失败原因，跳到下一个 Bug |
+| 修复失败 | Phase 3 | 记录失败原因，跳到下一个 Bug |
+| 编译失败 | Phase 3 | 自动修复重试3次 → 仍失败则 AI 判定: 依赖问题→安装依赖模块后重试; 代码问题→记录跳过 |
+| 编译依赖问题 | Phase 3 | mvn install -pl <依赖模块> → 重新编译当前模块 → 仍失败则记录跳过 |
+| 验证编译不通过 | Phase 3 | AI 判定: 依赖问题→安装依赖后重试验证; 仍失败→记录跳过验证，不阻塞 commit |
+| 本地测试失败 | Phase 3 | 记录失败 verdict，不阻塞后续 Bug |
+| 单元测试失败 | Phase 3 | 记录 verdict，不阻塞 git commit |
+| 数据验证失败 | Phase 3 | 记录结果，不阻塞（db-query 连接失败则跳过） |
 | Git 冲突 | Phase 4 | ⏸️ 暂停等待用户手动解决 |
 | CI 构建失败 | Phase 5 | ⏸️ 通知用户，等待决策（Coding 操作不依赖 CI 成功） |
 | SIT 测试失败 | Phase 5 | 记录失败截图，按 sit-verify-analyze 路由处理 |

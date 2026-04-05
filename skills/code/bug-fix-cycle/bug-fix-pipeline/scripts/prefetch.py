@@ -57,12 +57,22 @@ except ImportError:
     print("错误: 缺少 pyyaml 库，请执行: pip3 install pyyaml --user --break-system-packages")
     sys.exit(1)
 
+# 可选依赖: 从 Chrome 读取 Cookie
+try:
+    import sqlite3
+    import tempfile
+    import shutil
+    HAS_SQLITE = True
+except ImportError:
+    HAS_SQLITE = False
+
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
-# 项目根目录（相对于脚本位置向上 5 级）
+# 项目根目录（相对于脚本位置向上 6 级）
+# scripts → bug-fix-pipeline → bug-fix-cycle → code → skills → ai-spec → yili(项目根)
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parents[4]  # ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts → 项目根
+PROJECT_ROOT = SCRIPT_DIR.parents[5]
 
 CONFIG_PATH = PROJECT_ROOT / "ai-spec/skills/code/bug-fix-cycle/coding-bug-ops/config/coding-auth.yaml"
 COOKIE_PATH = PROJECT_ROOT / "ai-spec/skills/code/bug-fix-cycle/coding-bug-ops/config/coding-cookies.json"
@@ -175,12 +185,26 @@ class CodingClient:
                     self._api_mode = "internal_api"
                     log.info("✓ Cookie 认证成功 (内部 API 模式)")
                     return True
-                # Cookie 加载了但验证失败，也试试 Open API
-                if self.config.personal_access_token:
-                    pass  # 已经试过了
                 log.warning("✗ Cookie 认证失败，尝试下一策略")
+                # 清除无效 Cookie
+                self.session.cookies.clear()
 
-        # 策略3: SSO 登录
+        # 策略3: 从 Chrome 浏览器提取 Cookie（macOS）
+        if HAS_SQLITE:
+            log.info("尝试从 Chrome 浏览器提取 Cookie...")
+            chrome_profile = self.config.chrome_profile if hasattr(self.config, 'chrome_profile') else "Default"
+            if self._load_chrome_cookies(chrome_profile):
+                if self._verify_auth_internal_api():
+                    self._auth_method = "Chrome"
+                    self._api_mode = "internal_api"
+                    log.info("✓ Chrome Cookie 认证成功 (内部 API 模式)")
+                    # 导出有效 Cookie 供下次直接使用
+                    self._export_cookies()
+                    return True
+                log.warning("✗ Chrome Cookie 认证失败，尝试下一策略")
+                self.session.cookies.clear()
+
+        # 策略4: SSO 登录
         if self.config.sso_username and self.config.sso_password:
             log.info("尝试 SSO 登录...")
             if self._sso_login():
@@ -194,11 +218,12 @@ class CodingClient:
                 log.warning("✗ SSO 登录后验证失败")
 
         log.error(
-            "所有认证策略均失败！请检查:\n"
-            "  1. 在 coding-auth.yaml 中配置 personal_access_token\n"
-            "     (Coding → 个人设置 → 访问令牌 → 新建令牌)\n"
-            "  2. 或使用 browser-use cookies export 导出 Cookie\n"
-            "  3. 或检查 sso_username/sso_password 是否正确"
+            "所有认证策略均失败！请尝试以下方法:\n"
+            "  方法1 (推荐): 创建 Personal Access Token\n"
+            "    → 访问 Coding 个人设置 → 访问令牌 → 新建令牌\n"
+            "    → 在 coding-auth.yaml 中添加: personal_access_token: \"你的token\"\n"
+            "  方法2: 先在 Chrome 中登录 Coding 平台，然后重新运行此脚本\n"
+            "  方法3: 使用 browser-use cookies export 导出有效 Cookie"
         )
         return False
 
@@ -225,56 +250,209 @@ class CodingClient:
             log.warning(f"  Cookie 文件加载失败: {e}")
             return False
 
+    def _load_chrome_cookies(self, profile: str = "Default") -> bool:
+        """
+        从 macOS Chrome 浏览器的 Cookie 数据库中提取 Coding 域名的 Cookie。
+        Chrome 必须关闭才能读取（或复制到临时文件再读取）。
+        注意: Chrome 80+ 的 Cookie 值是加密的，需要 Keychain 解密。
+        此方法先尝试读取未加密的 Cookie，然后尝试解密。
+        """
+        if not HAS_SQLITE:
+            return False
+
+        # macOS Chrome Cookie 数据库路径
+        chrome_cookie_path = Path.home() / "Library/Application Support/Google/Chrome" / profile / "Cookies"
+        if not chrome_cookie_path.exists():
+            log.debug(f"  Chrome Cookie 数据库不存在: {chrome_cookie_path}")
+            return False
+
+        try:
+            # 复制到临时文件（避免 Chrome 锁定）
+            tmp_dir = tempfile.mkdtemp()
+            tmp_db = Path(tmp_dir) / "Cookies"
+            shutil.copy2(chrome_cookie_path, tmp_db)
+
+            conn = sqlite3.connect(str(tmp_db))
+            cursor = conn.cursor()
+
+            # 查询 Coding 域名的 Cookie
+            coding_domain = urlparse(self.config.coding_url).hostname
+            cursor.execute(
+                "SELECT name, value, encrypted_value, host_key, path "
+                "FROM cookies WHERE host_key LIKE ?",
+                (f"%{coding_domain}%",),
+            )
+            rows = cursor.fetchall()
+            conn.close()
+
+            # 清理临时文件
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            if not rows:
+                log.debug(f"  Chrome 中未找到 {coding_domain} 的 Cookie")
+                return False
+
+            loaded = 0
+            for name, value, encrypted_value, host_key, path in rows:
+                cookie_val = None
+                # 优先使用未加密的 value
+                if value:
+                    cookie_val = value
+                elif encrypted_value:
+                    # Chrome 80+ 加密 Cookie，尝试使用 macOS Keychain 解密
+                    cookie_val = self._decrypt_chrome_cookie(encrypted_value)
+
+                if cookie_val:
+                    # 确保 Cookie 值只包含 ASCII 可打印字符（requests 要求 latin-1 编码）
+                    try:
+                        cookie_val.encode("latin-1")
+                    except (UnicodeEncodeError, UnicodeDecodeError):
+                        # URL 编码非 ASCII 字符
+                        from urllib.parse import quote
+                        cookie_val = quote(cookie_val, safe="")
+                    self.session.cookies.set(name, cookie_val, domain=host_key, path=path)
+                    loaded += 1
+
+            log.info(f"  从 Chrome ({profile}) 提取了 {loaded}/{len(rows)} 条 Cookie")
+            return loaded > 0
+
+        except Exception as e:
+            log.warning(f"  Chrome Cookie 读取失败: {e}")
+            return False
+
+    def _decrypt_chrome_cookie(self, encrypted_value: bytes) -> Optional[str]:
+        """
+        解密 Chrome macOS 加密的 Cookie。
+        Chrome 使用 Keychain 中的密钥 + AES-CBC 加密。
+        """
+        try:
+            # Chrome v80+ 前缀 b'v10' 或 b'v11'
+            if not encrypted_value or len(encrypted_value) < 4:
+                return None
+
+            # macOS 使用 Keychain 存储密钥
+            import subprocess
+            result = subprocess.run(
+                ["security", "find-generic-password", "-w", "-s", "Chrome Safe Storage", "-a", "Chrome"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return None
+
+            chrome_password = result.stdout.strip()
+
+            # 使用 PBKDF2 派生密钥
+            import hashlib
+            key = hashlib.pbkdf2_hmac(
+                "sha1",
+                chrome_password.encode("utf-8"),
+                b"saltysalt",
+                1003,
+                dklen=16,
+            )
+
+            # AES-CBC 解密 (去掉 v10/v11 前缀的 3 字节)
+            iv = b" " * 16  # Chrome 使用空格填充的 IV
+            encrypted_data = encrypted_value[3:]  # 去掉 v10/v11 前缀
+
+            # 尝试使用 cryptography 库
+            try:
+                from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+                from cryptography.hazmat.backends import default_backend
+                cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+                decryptor = cipher.decryptor()
+                decrypted = decryptor.update(encrypted_data) + decryptor.finalize()
+                # 去除 PKCS7 padding
+                padding_len = decrypted[-1]
+                if 0 < padding_len <= 16:
+                    decrypted = decrypted[:-padding_len]
+                return decrypted.decode("utf-8", errors="replace")
+            except ImportError:
+                log.debug("  需要 cryptography 库来解密 Chrome Cookie: pip3 install cryptography --user --break-system-packages")
+                return None
+
+        except Exception as e:
+            log.debug(f"  Chrome Cookie 解密失败: {e}")
+            return None
+
     def _sso_login(self) -> bool:
         """
         通过 SSO 接口登录获取 session cookie。
-        Coding 的 SSO 登录通常涉及 OAuth/SAML 重定向，此处尝试常见模式。
+        Coding 企业版 SSO 登录流程较复杂（涉及 OAuth/SAML 重定向），
+        此处尝试多种常见模式。
         """
         try:
-            # 步骤1: 访问 Coding 登录页，获取重定向到 SSO 的 URL
+            # 步骤1: 访问 Coding 登录页，跟随重定向
             login_url = f"{self.base_url}/login"
             resp = self.session.get(login_url, allow_redirects=True, timeout=15)
+            log.debug(f"  登录页响应: {resp.status_code}, URL: {resp.url}")
 
-            # 步骤2: 尝试直接 POST SSO 凭证
-            # 常见 SSO 登录端点模式
-            sso_endpoints = [
-                f"{self.base_url}/api/sso/login",
-                f"{self.base_url}/api/v1/sso/login",
-                f"{self.base_url}/api/auth/login",
+            # 步骤2: 尝试多种 SSO 登录端点
+            sso_payloads = [
+                # Coding 标准 SSO
+                (f"{self.base_url}/api/sso/login", {
+                    "username": self.config.sso_username,
+                    "password": self.config.sso_password,
+                }),
+                # Coding 标准 SSO（account 字段）
+                (f"{self.base_url}/api/sso/login", {
+                    "account": self.config.sso_username,
+                    "password": self.config.sso_password,
+                }),
+                # Coding v1 登录
+                (f"{self.base_url}/api/v1/login", {
+                    "account": self.config.sso_username,
+                    "password": self.config.sso_password,
+                }),
+                # 通用 auth 登录
+                (f"{self.base_url}/api/auth/login", {
+                    "username": self.config.sso_username,
+                    "password": self.config.sso_password,
+                }),
             ]
 
-            for endpoint in sso_endpoints:
+            for endpoint, payload in sso_payloads:
                 try:
-                    resp = self.session.post(
-                        endpoint,
-                        json={
-                            "username": self.config.sso_username,
-                            "password": self.config.sso_password,
-                        },
-                        timeout=15,
-                    )
+                    resp = self.session.post(endpoint, json=payload, timeout=15)
                     if resp.status_code == 200:
-                        data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-                        if data.get("code") == 0 or data.get("status") == "ok" or "token" in data:
-                            log.info(f"  SSO 登录端点命中: {endpoint}")
-                            return True
-                except Exception:
-                    continue
+                        try:
+                            data = resp.json()
+                        except Exception:
+                            data = {}
+                        log.debug(f"  SSO 端点 {endpoint} 返回: {json.dumps(data, ensure_ascii=False)[:300]}")
 
-            # 步骤3: 尝试 Coding 自带的登录 API
-            try:
-                resp = self.session.post(
-                    f"{self.base_url}/api/v1/login",
-                    json={
-                        "account": self.config.sso_username,
-                        "password": self.config.sso_password,
-                    },
-                    timeout=15,
-                )
-                if resp.status_code == 200:
-                    return True
-            except Exception:
-                pass
+                        # 检查多种成功响应格式
+                        is_success = (
+                            data.get("code") == 0
+                            or data.get("status") == "ok"
+                            or data.get("success") is True
+                            or "token" in data
+                            or "Token" in data
+                            or data.get("ret") == 0
+                            or data.get("data", {}).get("token")
+                        )
+                        if is_success:
+                            log.info(f"  SSO 登录成功: {endpoint}")
+                            # 如果返回了 token，设为 header
+                            token = (data.get("token") or data.get("Token")
+                                     or data.get("data", {}).get("token", ""))
+                            if token:
+                                self.session.headers["Authorization"] = f"token {token}"
+                            return True
+
+                        # 即使 code != 0，如果 session 已经有了含有效 token 的 cookie 也算成功
+                        # 检查是否有 coding_login_token 或类似的关键 cookie
+                        auth_cookie_names = {"coding_login_token", "eid", "CODING_TOKEN", "SESSION", "JSESSIONID"}
+                        session_cookies = {c.name for c in self.session.cookies}
+                        if session_cookies & auth_cookie_names:
+                            log.info(f"  SSO 登录后发现关键 Cookie: {session_cookies & auth_cookie_names}，尝试验证...")
+                            return True
+
+                except requests.exceptions.ConnectionError:
+                    continue
+                except Exception as e:
+                    log.debug(f"  SSO 端点 {endpoint} 异常: {e}")
+                    continue
 
             log.warning("  SSO 自动登录未命中已知端点，请使用 PAT 或 Cookie 方式")
             return False
@@ -339,16 +517,13 @@ class CodingClient:
             )
             if resp.status_code == 200:
                 data = resp.json()
-                if data.get("code") == 0 or "data" in data or "Data" in data:
+                # 检查 Coding 的 code 字段，1000 = 用户未登录
+                code = data.get("code")
+                if code == 1000:
+                    log.debug("  内部 API 返回 code=1000 (用户未登录)")
+                    return False
+                if code == 0 or "data" in data or "Data" in data:
                     return True
-            # 尝试另一个内部端点
-            resp2 = self.session.get(
-                f"{self.base_url}/api/project/{CODING_PROJECT}/issues",
-                params={"type": "DEFECT", "pageSize": 1},
-                timeout=15,
-            )
-            if resp2.status_code == 200:
-                return True
             return False
         except Exception as e:
             log.debug(f"  内部 API 验证异常: {e}")
@@ -415,53 +590,89 @@ class CodingClient:
         page = 1
         page_size = 100
 
-        # 尝试从 filter URL 提取参数
-        params = {"type": "DEFECT", "pageSize": page_size}
+        # 构建基础参数（尝试多种参数名）
+        base_params = {"pageSize": page_size}
+
+        # 从 filter URL 提取参数
         if filter_url:
             parsed = urlparse(filter_url)
             qs = parse_qs(parsed.query)
             if "filter" in qs:
-                params["filter"] = qs["filter"][0]
+                base_params["filter"] = qs["filter"][0]
 
-        if assignee:
-            params["assignee"] = assignee
-
-        # 尝试多个可能的内部 API 路径
-        api_paths = [
-            f"/api/v2/project/{CODING_PROJECT}/issues",
-            f"/api/project/{CODING_PROJECT}/issues",
-            f"/api/v1/project/{CODING_PROJECT}/issues",
+        # 尝试多个可能的内部 API 路径和参数组合
+        api_attempts = [
+            # 格式1: /api/v2/... + type=DEFECT
+            (f"/api/v2/project/{CODING_PROJECT}/issues", {**base_params, "type": "DEFECT"}),
+            # 格式2: /api/v2/... + issueType=DEFECT
+            (f"/api/v2/project/{CODING_PROJECT}/issues", {**base_params, "issueType": "DEFECT"}),
+            # 格式3: /api/project/... + type=DEFECT
+            (f"/api/project/{CODING_PROJECT}/issues", {**base_params, "type": "DEFECT"}),
+            # 格式4: 缺陷专用端点
+            (f"/api/v2/project/{CODING_PROJECT}/defects", base_params.copy()),
+            (f"/api/project/{CODING_PROJECT}/defects", base_params.copy()),
         ]
 
         working_path = None
-        for path in api_paths:
+        working_params = None
+        for path, params in api_attempts:
             try:
-                params["page"] = page
-                resp = self.session.get(
-                    f"{self.base_url}{path}",
-                    params=params,
-                    timeout=15,
-                )
+                params["page"] = 1
+                if assignee:
+                    # 同时设置多种处理人参数名，让服务端忽略不认识的
+                    params["assignee"] = assignee
+                resp = self.session.get(f"{self.base_url}{path}", params=params, timeout=15)
                 if resp.status_code == 200:
-                    working_path = path
-                    break
-            except Exception:
+                    data = resp.json()
+                    log.debug(f"  尝试 {path}: {json.dumps(data, ensure_ascii=False)[:500]}")
+                    # 检查是否有有效数据结构
+                    inner = data.get("data", data.get("Data", data.get("Response", data)))
+                    if isinstance(inner, dict):
+                        items = inner.get("list", inner.get("List", inner.get("issues", inner.get("Issues", []))))
+                        total = inner.get("totalCount", inner.get("TotalCount", inner.get("total", inner.get("Total", 0))))
+                        if items or total > 0:
+                            working_path = path
+                            working_params = params
+                            log.info(f"  API 路径命中: {path} (总数: {total})")
+                            break
+                        elif not assignee:
+                            # 没有 assignee 过滤也没数据，继续试下一个路径
+                            continue
+                        else:
+                            # 有 assignee 但返回空，可能是 assignee 参数名不对，也可能真的没有
+                            # 先不加 assignee 试试
+                            params_no_assignee = {k: v for k, v in params.items() if k != "assignee"}
+                            resp2 = self.session.get(f"{self.base_url}{path}", params=params_no_assignee, timeout=15)
+                            if resp2.status_code == 200:
+                                data2 = resp2.json()
+                                inner2 = data2.get("data", data2.get("Data", data2.get("Response", data2)))
+                                if isinstance(inner2, dict):
+                                    total2 = inner2.get("totalCount", inner2.get("TotalCount", inner2.get("total", 0)))
+                                    if total2 > 0:
+                                        # 不加 assignee 有数据，说明 assignee 参数名可能不对
+                                        working_path = path
+                                        working_params = params_no_assignee
+                                        log.info(f"  API 路径命中: {path} (总数: {total2}, 注意: assignee 过滤可能未生效)")
+                                        break
+            except Exception as e:
+                log.debug(f"  尝试 {path} 失败: {e}")
                 continue
 
         if not working_path:
-            log.error("  未找到可用的内部 API 路径")
+            log.error("  未找到可用的内部 API 路径，或所有路径返回空数据")
+            log.info("  建议: 使用 Personal Access Token 方式，配置 coding-auth.yaml 的 personal_access_token 字段")
             return []
 
         while True:
-            params["page"] = page
-            resp_data = self._request("GET", f"{self.base_url}{working_path}", params=params)
+            working_params["page"] = page
+            resp_data = self._request("GET", f"{self.base_url}{working_path}", params=working_params)
             if not resp_data:
                 break
 
-            data = resp_data.get("data", resp_data.get("Data", resp_data))
+            data = resp_data.get("data", resp_data.get("Data", resp_data.get("Response", resp_data)))
             if isinstance(data, dict):
-                issues = data.get("list", data.get("List", data.get("issues", [])))
-                total = data.get("totalCount", data.get("TotalCount", data.get("total", 0)))
+                issues = data.get("list", data.get("List", data.get("issues", data.get("Issues", []))))
+                total = data.get("totalCount", data.get("TotalCount", data.get("total", data.get("Total", 0))))
             elif isinstance(data, list):
                 issues = data
                 total = len(data)
@@ -473,7 +684,7 @@ class CodingClient:
                 if bug:
                     all_bugs.append(bug)
 
-            log.info(f"  第 {page} 页: 获取 {len(issues)} 条")
+            log.info(f"  第 {page} 页: 获取 {len(issues)} 条, 总计 {total}")
 
             if not issues or len(all_bugs) >= total or len(issues) < page_size:
                 break

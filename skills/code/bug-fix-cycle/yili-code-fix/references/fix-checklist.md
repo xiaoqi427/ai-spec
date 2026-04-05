@@ -50,7 +50,8 @@
 - [ ] 关键逻辑有行内注释
 
 ### 编译验证
-- [ ] `mvn compile` 编译通过
+- [ ] JDK 版本为 21（`java -version` 确认，项目强制 Java 21）
+- [ ] `mvn compile -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository` 编译通过
 - [ ] import 语句完整，无遗漏
 - [ ] 没有类型不匹配错误
 - [ ] 没有方法签名不一致

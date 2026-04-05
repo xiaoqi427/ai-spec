@@ -4,11 +4,13 @@
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
+| **Java** | **21（必须）** | 运行环境，低版本编译/测试不通过 |
 | JUnit 5 (Jupiter) | 由 Spring Boot 3.5.6 管理 | 测试框架 |
 | Mockito | 由 Spring Boot 3.5.6 管理 | Mock 框架 |
 | AssertJ | 由 Spring Boot 3.5.6 管理 | 流畅断言 |
 | spring-boot-starter-test | 3.5.6 | 聚合依赖 |
-| Java | 21 | 运行环境 |
+
+**重要**: 运行 `mvn test` 前必须确认 `java -version` 输出为 21，否则编译阶段即失败。
 
 ## 测试类命名约定
 
@@ -146,20 +148,23 @@ should_set_default_value_when_field_is_empty()
 mvn test -pl claim-otc/claim-otc-service \
   -Dtest=T047NewClaimServiceImplTest \
   -DskipTests=false \
-  -Dmaven.test.skip=false
+  -Dmaven.test.skip=false \
+  -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository
 
 # 多个测试类（逗号分隔）
 mvn test -pl claim-otc/claim-otc-service \
   -Dtest=T047NewClaimServiceImplTest,T047LoadClaimServiceImplTest \
   -DskipTests=false \
   -Dmaven.test.skip=false \
+  -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository \
   -T 1C
 
 # 带通配符
 mvn test -pl claim-otc/claim-otc-service \
   -Dtest="T047*Test" \
   -DskipTests=false \
-  -Dmaven.test.skip=false
+  -Dmaven.test.skip=false \
+  -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository
 ```
 
 ### 重要参数
@@ -170,6 +175,7 @@ mvn test -pl claim-otc/claim-otc-service \
 | `-Dtest=<Class>` | 指定测试类名（支持通配符） |
 | `-DskipTests=false` | 覆盖 pom 中的 skipTests=true |
 | `-Dmaven.test.skip=false` | 覆盖 pom 中的 maven.test.skip |
+| `-Dmaven.repo.local=<path>` | 指定本地仓库路径（项目仓库: `/Users/xiaoqi/.m2/yili-repository`） |
 | `-T 1C` | 按 CPU 核数并行构建 |
 | `--fail-at-end` | 所有模块跑完再报错 |
 

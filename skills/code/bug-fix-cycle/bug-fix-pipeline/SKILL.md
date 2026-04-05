@@ -59,6 +59,26 @@ Phase 5: 统一闭环 → CI 构建 + SIT 验证 + Coding 操作（评论+状态
 
 ---
 
+## 环境要求（强制）
+
+| 依赖 | 版本要求 | 检查命令 | 说明 |
+|------|---------|---------|------|
+| **JDK** | **21（必须）** | `java -version` | 项目强制 Java 21，低版本编译不通过 |
+| Maven | 3.9.6+ | `mvn -version` | 构建工具 |
+
+**JDK 21 检查规则**:
+- Pipeline 启动（Phase 3 开始前）**必须**检查 `java -version` 输出是否包含 `21`
+- 如果 JDK 版本不是 21，**立即终止流程**，提示用户切换 JDK:
+  ```
+  ❌ 当前 JDK 版本不是 21，编译将会失败！
+  请切换到 JDK 21 后重新执行:
+    export JAVA_HOME=$(/usr/libexec/java_home -v 21)
+    或使用 jenv/sdkman 切换
+  ```
+- 所有 `mvn` 命令执行前均假定 JDK 21 已就绪，不再逐次检查
+
+---
+
 ## 外部依赖
 
 | 外部 Skill               | 安装命令                                                                | 说明                                                            |
@@ -252,28 +272,29 @@ yili-out/test-case-index/
   │   │   └─ 确认最终修复队列
   │   └─ 2.5 生成 fix-queue.json
   │
-  ├─ Phase 3: 批量修复 (Fix & Commit)
+  ├─ Phase 3: 批量修复 (Fix & Commit) — continuous 模式，全程不中断
   │   ├─ 3.0 读取 fix-queue.json
   │   │
   │   ├─ 对 action=fix 的每个 Bug (按 priority 顺序):
   │   │   ├─ 3.1 装载当前 Bug 记忆 (memory-setup.update)
   │   │   ├─ 3.2 读取本地预采集数据 (detail.txt + comments.txt)
-  │   │   ├─ 3.3 并行分析 (fork → join)
+  │   │   ├─ 3.3 并行分析 (fork → join) — 失败则记录跳过
   │   │   │   ├─ [A] yili-code-fix.analyze → 遗漏清单
   │   │   │   ├─ [B] test-case-ref.lookup → 测试用例参考
   │   │   │   └─ [C] [可选] db-query.check-data → 数据现状
-  │   │   ├─ 3.4 输出分析方案
-  │   │   ├─ 3.5 [条件] 等待用户确认 (offline 模式跳过)
-  │   │   ├─ 3.6 执行修复 (yili-code-fix.fix)
-  │   │   ├─ 3.7 编译验证 (mvn compile)
-  │   │   ├─ 3.7.1 [可选] 并行验证 (fork → join)
+  │   │   ├─ 3.4 输出分析方案 (仅展示，不等待确认)
+  │   │   ├─ 3.5 执行修复 (yili-code-fix.fix) — 失败则记录跳过
+  │   │   ├─ 3.6 编译验证 (mvn compile) — 含 AI 智能依赖处理
+  │   │   │   └─ 失败 → 重试3次 → AI判定依赖问题 → 安装依赖后重试 → 仍失败记录跳过
+  │   │   ├─ 3.7 [可选] 并行验证 (fork → join) — 编译不通过则AI判定依赖
   │   │   │   ├─ [A] fix-verify.run-tests → 单元测试
   │   │   │   └─ [B] fix-verify.verify-data → 数据验证
-  │   │   ├─ 3.8 [可选] 本地接口测试 (local-api-test)
+  │   │   ├─ 3.8 [可选] 本地接口测试 (local-api-test) — 失败记录不阻塞
   │   │   ├─ 3.9 git commit → 立即提交到本地
   │   │   │   └─ fix(<module>): #<bug-id> <标题>
   │   │   ├─ 3.10 单 Bug 复盘 (self-improving-agent)
   │   │   └─ 3.11 记录修复结果到 fix-queue.json.results
+  │   │        └─ ⚠️ 任何步骤失败 → 记录失败原因+状态 → 跳到下一个 Bug
   │   │
   │   ├─ 对 action=tag-frontend 的每个 Bug:
   │   │   ├─ 读取本地预采集数据，确认前端问题分析
@@ -500,6 +521,14 @@ browser-use cookies export config/coding-cookies.json
 
 **目标**: 按 fix-queue 顺序逐个修复，每修一个 Bug 立即 commit 到本地，**不操作 Coding**。
 
+**核心原则**: **continuous 模式 — 全程持续执行，不中途暂停**。遇到任何问题（分析失败、修复失败、编译失败、测试失败等）记录后跳到下一个 Bug，不中断整个流程。
+
+**前置检查**: Phase 3 开始前必须检查 JDK 版本:
+```bash
+java -version 2>&1 | grep -q "21" || echo "❌ JDK 版本不是 21，请先切换"
+```
+JDK 不是 21 → 立即终止，不进入修复循环。
+
 #### action=fix 的 Bug
 
 ```
@@ -533,39 +562,54 @@ browser-use cookies export config/coding-cookies.json
       └─ [C] [可选] db-query.check-data
           → 查库了解数据现状
       → join: 合并遗漏清单 + 测试用例 + 数据现状
+      → ⚠️ 分析失败: 记录失败原因，跳到下一个 Bug
 
-  3.4 输出分析方案
+  3.4 输出分析方案 (仅展示，不等待确认)
       向用户展示: 遗漏清单 + 修复计划
+      → 展示后自动继续，不暂停等待确认
 
-  3.5 等待用户确认 (受执行模式控制)
-      → mode=interactive: ⏸️ 等待用户回复"确认"后继续，或"跳过"此 Bug
-      → mode=offline: 自动跳过确认，直接执行修复
-
-  3.6 执行修复
+  3.5 执行修复
       yili-code-fix.fix(bug-context)
+      → ⚠️ 修复失败: 记录失败原因，跳到下一个 Bug
 
-  3.7 编译验证
-      mvn compile -pl <module> -am -T 1C
+  3.6 编译验证 (含 AI 智能依赖处理)
+      mvn compile -pl <module> -am -T 1C -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository
       → 编译失败自动修复重试（最多 3 次）
+      → 3 次仍失败时，AI 智能判定编译错误:
+        ┌─ 分析编译错误日志，判定是「本模块代码问题」还是「依赖模块问题」
+        ├─ 如果是依赖问题:
+        │   1. 识别缺失/过期的依赖模块
+        │   2. mvn install -pl <依赖模块> -am -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository
+        │   3. 重新编译当前模块 mvn compile -pl <module> -am -T 1C
+        │   4. 仍失败 → 记录 status=compile_failed，跳到下一个 Bug
+        └─ 如果是代码问题且 AI 无法修复:
+            → 记录 status=compile_failed，跳到下一个 Bug
 
-  3.7.1 [可选] 并行验证 (fork → join)
+  3.7 [可选] 并行验证 (fork → join)
       以下子任务可并行执行:
       ├─ [A] fix-verify.discover-tests(modified_files) + run-tests
       │   → 根据修改的文件自动发现对应测试类
       │   → 匹配策略: 精确类名 > 包路径映射 > 同包递归 > 模块扫描
-      │   → mvn test -pl <module> -Dtest=<tests> -DskipTests=false
+      │   → mvn test -pl <module> -Dtest=<tests> -DskipTests=false -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository
+      │   → ⚠️ 如果测试编译不通过 (非测试运行失败):
+      │       AI 判定是否依赖问题 → 安装依赖模块 → 重试测试
+      │       仍编译不通过 → 跳过验证，记录 verify_compile_failed
       │   → 解析 Surefire 报告 → verdict (PASS/WARN/FAIL/SKIP)
       └─ [B] fix-verify.verify-data(bug_context)
           → 编排 db-query.check-data → 验证数据状态
           → [可选] db-query.trace-branch → 确认分支走向
           → [可选] db-query.verify-fix → 修复前后对比
           → ⚠️ 仅在 Bug 涉及数据操作时执行
+          → ⚠️ 如果数据验证编译不通过:
+              AI 判定依赖问题 → 安装依赖 → 重试
+              仍失败 → 跳过验证，记录 verify_compile_failed
       → join: 合并 unit_test + data_verify → verdict
-      → ⚠️ 测试失败不自动阻塞，报告给用户决策
+      → ⚠️ 验证失败/跳过均不阻塞，记录 verdict 后继续 commit
 
   3.8 [可选] 本地接口测试
       local-api-test → 本地启动服务 → curl 测试 → 验证响应
       [可选] db-query.verify-fix → 验证数据库变更
+      → ⚠️ 测试失败: 记录 verdict，不阻塞后续步骤
 
   3.9 git commit (提交到本地，不 push)
       git add <修改的文件>
@@ -580,13 +624,17 @@ browser-use cookies export config/coding-cookies.json
 
   3.11 记录修复结果
       → 更新 fix-queue.json.results[bug-id]
-      → status: "fixed"
+      → status: "fixed" | "compile_failed" | "fix_failed" | "analyze_failed" | "verify_compile_failed"
       → files: [修改的文件列表]
-      → compile: "pass"
-      → unit_test: {verdict, total, passed, failed, skipped}
-      → data_verify: {verdict, checks, passed}
-      → commit_hash: "<本次 commit hash>"
+      → compile: "pass" | "failed"
+      → dep_resolve: {attempted: true/false, dep_modules: [...], result: "pass"/"failed"}
+      → unit_test: {verdict, total, passed, failed, skipped, compile_error: true/false}
+      → data_verify: {verdict, checks, passed, compile_error: true/false}
+      → commit_hash: "<本次 commit hash>" (仅 status=fixed 时)
       → comment_draft: "【AI修复】..." (评论草稿，Phase 5 使用)
+      → skip_reason: "..." (失败跳过时记录失败原因)
+
+  ⚠️ 任何步骤失败 → 记录 status + skip_reason → 自动跳到下一个 Bug
 ```
 
 #### action=tag-frontend 的 Bug
@@ -611,7 +659,7 @@ browser-use cookies export config/coding-cookies.json
     reason: "用户标记跳过"
 ```
 
-**关键**: Phase 3 全程不打开 Coding 浏览器，不推送远端。每修一个 Bug 立即 commit 到本地，保证每个 Bug 一个独立 commit。
+**关键**: Phase 3 全程 continuous 模式持续执行，不打开 Coding 浏览器，不推送远端。每修一个 Bug 立即 commit 到本地，任何步骤失败记录后跳过，保证每个 Bug 一个独立 commit。
 
 ---
 
@@ -856,9 +904,12 @@ SIT 验证结果更新到 fix-queue.json.results:
 ### 4. 错误恢复
 
 - 预采集失败: 单个 Bug 采集失败不阻塞其他 Bug
-- 编译失败: 自动重试 3 次
+- 分析/修复失败: 记录失败原因，跳到下一个 Bug
+- 编译失败: 自动重试 3 次 → AI 判定依赖问题 → 安装依赖后重试 → 仍失败记录跳过
+- 验证编译不通过: AI 判定依赖问题 → 安装依赖后重试 → 仍失败跳过验证
 - SIT 验证失败: 记录结果，不阻塞其他 Bug 的 Coding 操作
 - Coding 操作失败: 重试 1 次，失败则本地保存评论内容
+- **批量模式核心**: 所有错误记录后跳过，不中断流程
 
 ### 5. 数据安全
 
@@ -877,19 +928,22 @@ SIT 验证结果更新到 fix-queue.json.results:
 
 ## 强制约束
 
-1. **分诊台确认**: 批量模式下必须经过 Phase 2 分诊台确认，不自动开始修复
-2. **用户确认**: 每个 Bug 修复前（Phase 3.5）须等待用户确认（`mode=offline` 时自动跳过）
-3. **代码与 Coding 解耦**: Phase 3 不操作 Coding，Phase 5 统一处理
-4. **评论完整**: 添加到 Coding 的评论必须包含老代码位置、修复说明
-5. **编译验证**: 修复后必须编译通过
-6. **截图存证**: SIT 测试必须截图
-7. **不改生产**: 只在 SIT/UAT 环境测试
-8. **评论必读**: 读取 Bug 时必须同时读评论（Phase 1 预采集时完成）
-9. **分层遵守**: 修复代码遵守 agents.md 分层规范
-10. **用户规则**: 遵守 user-rules.md 中"不修改代码、需要变更请重写"原则
-11. **记忆先行**: 进入批量流程前必须初始化运行记忆
-12. **每 Bug 复盘**: 每个 Bug 结束后必须做一次简短自改进复盘
-13. **本地存储**: 预采集数据和修复队列必须持久化到 yili-out/bug-prefetch/
+1. **JDK 21 强制**: Phase 3 开始前必须检查 JDK 版本为 21，否则立即终止
+2. **分诊台确认**: 批量模式下必须经过 Phase 2 分诊台确认，不自动开始修复
+3. **持续执行**: 批量模式 Phase 3 全程 continuous 模式，展示分析方案后自动继续，不中途暂停
+4. **问题跳过**: 任何步骤失败（分析、修复、编译、测试等）记录后跳到下一个 Bug，不阻塞流程
+5. **智能依赖处理**: 编译失败或验证编译不通过时，AI 判定是否依赖问题，尝试安装依赖模块后重试
+6. **代码与 Coding 解耦**: Phase 3 不操作 Coding，Phase 5 统一处理
+7. **评论完整**: 添加到 Coding 的评论必须包含老代码位置、修复说明
+8. **编译验证**: 修复后必须尝试编译验证，失败则 AI 智能处理后记录跳过
+9. **截图存证**: SIT 测试必须截图
+10. **不改生产**: 只在 SIT/UAT 环境测试
+11. **评论必读**: 读取 Bug 时必须同时读评论（Phase 1 预采集时完成）
+12. **分层遵守**: 修复代码遵守 agents.md 分层规范
+13. **用户规则**: 遵守 user-rules.md 中"不修改代码、需要变更请重写"原则
+14. **记忆先行**: 进入批量流程前必须初始化运行记忆
+15. **每 Bug 复盘**: 每个 Bug 结束后必须做一次简短自改进复盘
+16. **本地存储**: 预采集数据和修复队列必须持久化到 yili-out/bug-prefetch/
 
 ## 参考
 

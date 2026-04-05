@@ -29,6 +29,7 @@ L4 接口测试 (local-api-test)       ← 已有，fix-verify 之后
 
 | 依赖 | 说明 |
 |------|------|
+| **JDK 21（必须）** | 项目强制 Java 21，低版本编译/测试不通过 |
 | Maven 3.9.6+ | 必须。用于运行单元测试 |
 | JUnit 5 (spring-boot-starter-test) | 项目已有。测试框架 |
 | Oracle SQLcl (`sql` 命令) | 可选。数据验证需要，由 db-query 负责 |
@@ -151,6 +152,7 @@ mvn test \
   -Dtest=<Test1>,<Test2> \
   -DskipTests=false \
   -Dmaven.test.skip=false \
+  -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository \
   -T 1C \
   --fail-at-end
 
@@ -160,6 +162,7 @@ mvn test \
   -Dtest=T047NewClaimServiceImplTest,T047LoadClaimServiceImplTest \
   -DskipTests=false \
   -Dmaven.test.skip=false \
+  -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository \
   -T 1C \
   --fail-at-end
 ```
@@ -347,7 +350,7 @@ fix-verify 在 bug-fix-pipeline Phase 3 中的位置:
 ```
 Phase 3 (action=fix):
   3.6 执行修复 (yili-code-fix.fix)
-  3.7 编译验证 (mvn compile)
+  3.7 编译验证 (mvn compile -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository)
   │
   3.7.1 [可选] 单元测试验证 (fix-verify)
   │   ├─ fix-verify.discover-tests(modified_files)

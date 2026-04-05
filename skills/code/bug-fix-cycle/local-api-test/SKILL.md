@@ -270,9 +270,11 @@ Cookie 关键字段:
 
 ### Step 2: 本地编译
 
+**前置条件**: JDK 21（`java -version` 输出必须包含 `21`，否则编译必定失败）
+
 ```bash
 cd /Users/xiaoqi/Documents/work/yili/<服务目录>
-mvn compile -pl <web模块> -am -q
+mvn compile -pl <web模块> -am -q -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository
 ```
 
 编译失败就停止，先修复。
@@ -284,11 +286,11 @@ mvn compile -pl <web模块> -am -q
 ```bash
 # config 服务
 cd /Users/xiaoqi/Documents/work/yili/fssc-config-service
-mvn spring-boot:run -pl fssc-config-web -Dspring-boot.run.profiles=local &
+mvn spring-boot:run -pl fssc-config-web -Dspring-boot.run.profiles=local -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository &
 
 # claim-base 服务
 cd /Users/xiaoqi/Documents/work/yili/fssc-claim-service
-mvn spring-boot:run -pl claim-base/claim-base-web -Dspring-boot.run.profiles=local &
+mvn spring-boot:run -pl claim-base/claim-base-web -Dspring-boot.run.profiles=local -Dmaven.repo.local=/Users/xiaoqi/.m2/yili-repository &
 ```
 
 健康检查:
@@ -414,10 +416,11 @@ prefer_safe_read_api: true
 
 ## 强制约束
 
-1. **先定位再执行**: 不要猜接口，先确认来源
-2. **先健康检查再调用**: 服务没起来不能直接打业务接口
-3. **必须登录**: 除健康检查外，业务接口一律带 Cookie
-4. **优先跑读接口**: 查询、加载、列表优先
-5. **写接口先告知风险**: 会改数据时要明确说明
-6. **结果必须可复用**: 输出最终 curl 和最小请求体
-7. **不要只给建议**: 除非遇到阻塞，否则必须自己执行
+1. **JDK 21 强制**: 编译和启动服务前必须确认 JDK 版本为 21
+2. **先定位再执行**: 不要猜接口，先确认来源
+3. **先健康检查再调用**: 服务没起来不能直接打业务接口
+4. **必须登录**: 除健康检查外，业务接口一律带 Cookie
+5. **优先跑读接口**: 查询、加载、列表优先
+6. **写接口先告知风险**: 会改数据时要明确说明
+7. **结果必须可复用**: 输出最终 curl 和最小请求体
+8. **不要只给建议**: 除非遇到阻塞，否则必须自己执行
