@@ -138,6 +138,24 @@ browser-use state
 # 检查是否在登录页 → 如果不是，认证成功
 ```
 
+### 1.5 Chrome Cookie 提取（Cookie 文件不存在或过期时）
+
+当 Cookie 文件不存在、或导入后仍在登录页时，**自动从当前 Chrome 提取 SIT Cookie**：
+
+```bash
+# 从 Chrome 数据库提取 SIT 域名的 Cookie → 保存到 sit-cookies.json
+python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/extract-chrome-cookies.py \
+  --domain pri-fssc-web-sit.digitalyili.com \
+  --output config/sit-cookies.json
+
+# 提取成功后，走 Cookie 文件导入
+browser-use cookies import config/sit-cookies.json
+browser-use open "http://pri-fssc-web-sit.digitalyili.com"
+# → 执行视口覆写（公共前置步骤）
+browser-use state
+# 检查是否在登录页 → 如果不是，认证成功
+```
+
 ### 2. Chrome Profile 复用（降级）
 
 ```bash

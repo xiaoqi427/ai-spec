@@ -389,7 +389,14 @@ python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py -
 python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/prefetch.py --mine --dry-run
 ```
 
-**认证降级顺序**: PAT → Cookie 文件 → SSO 登录
+**认证降级顺序**: PAT → Cookie 文件 → Chrome Cookie 提取 → SSO 登录
+
+> **Chrome Cookie 提取**: 当 Cookie 文件不存在时，可自动从当前 Chrome 提取:
+> ```bash
+> python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/extract-chrome-cookies.py
+> ```
+> 只要 Chrome 已登录 Coding，即可零交互提取 Cookie，无需额外依赖。
+
 **输出格式**: 与浏览器采集完全兼容 (metadata.json / detail.txt / comments.txt / prefetch-summary.json)
 
 ---

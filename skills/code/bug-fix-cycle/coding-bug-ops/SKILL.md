@@ -183,9 +183,29 @@ browser-use open <url>
 # → 检查是否需要登录（见下方认证验证）
 ```
 
+#### 1.5 Chrome Cookie 提取（Cookie 文件不存在或过期时，自动从 Chrome 提取）
+
+当 Cookie 文件不存在、或导入后验证失败时，**自动从当前 Chrome 浏览器提取 Cookie**。
+只要用户在 Chrome 中已登录 Coding，无需手动操作：
+
+```bash
+# 从 Chrome 数据库提取 Coding 域名的 Cookie → 保存到 coding-cookies.json
+python3 ai-spec/skills/code/bug-fix-cycle/bug-fix-pipeline/scripts/extract-chrome-cookies.py
+
+# 提取成功后，走 Cookie 文件导入
+browser-use cookies import config/coding-cookies.json
+browser-use open <url>
+# → 执行视口覆写（公共前置步骤）
+# → 检查是否需要登录（见下方认证验证）
+```
+
+**提取原理**: 直接读取 macOS Chrome Cookie 数据库（`~/Library/Application Support/Google/Chrome/Default/Cookies`），
+支持 Chrome 80+ AES 加密解密，提取后保存为 browser-use 兼容 JSON 格式。
+**零外部依赖**: 仅使用 Python 标准库（sqlite3 + subprocess），无需 pip install。
+
 #### 2. Chrome Profile 复用（降级）
 
-直接复用本机 Chrome 已登录的会话：
+直接复用本机 Chrome 已登录的会话（启动新 Chromium 实例，较重）：
 
 ```bash
 browser-use --profile "Default" open <url>
@@ -272,11 +292,13 @@ browser-use cookies export config/coding-cookies.json
 ```
 Cookie 文件导入 → 验证
   ├─ 成功 → 继续操作
-  └─ 失败 → Chrome Profile → 验证
-              ├─ 成功 → 导出 Cookie → 继续操作
-              └─ 失败 → SSO 登录 → 验证
+  └─ 失败 → Chrome Cookie 提取 → Cookie 文件导入 → 验证
+              ├─ 成功 → 继续操作
+              └─ 失败 → Chrome Profile → 验证
                           ├─ 成功 → 导出 Cookie → 继续操作
-                          └─ 重试(2次) → 失败 → ⏸️ 报告用户
+                          └─ 失败 → SSO 登录 → 验证
+                                      ├─ 成功 → 导出 Cookie → 继续操作
+                                      └─ 重试(2次) → 失败 → ⏸️ 报告用户
 ```
 
 ---
